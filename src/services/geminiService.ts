@@ -46,17 +46,17 @@ FORMATTING:
 - Emoji: ⚛️ atoms, 🔬 diagnostics, ⚡ plasma, 📊 data, 🎯 precision.`;
 
 export class GeminiService {
-  private ai: GoogleGenAI;
-
-  constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is missing");
-    }
-    this.ai = new GoogleGenAI({ apiKey });
-  }
+  private ai: GoogleGenAI | null = null;
 
   async chat(message: string, history: { role: 'user' | 'model', parts: { text: string }[] }[] = []) {
+    if (!this.ai) {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // API-KEY-FIX
+      if (!apiKey) {
+        throw new Error("AI Assistant unavailable — API key not configured.\nAll spectroscopic data features still work normally."); // API-KEY-FIX
+      }
+      this.ai = new GoogleGenAI({ apiKey });
+    }
+
     try {
       const response = await this.ai.models.generateContent({
         model: "gemini-3.1-pro-preview",

@@ -142,7 +142,14 @@ export async function checkDataSourceStatus(): Promise<{
   active_source: string,
   last_successful_fetch: string
 }> {
-  const status = {
+  const status: {
+    nist_api: "online" | "offline" | "unknown",
+    cloudflare_worker: "online" | "offline" | "unknown",
+    github_backup: "online" | "offline" | "unknown",
+    local_json: "ready",
+    active_source: string,
+    last_successful_fetch: string
+  } = {
     nist_api: "unknown" as const,
     cloudflare_worker: "unknown" as const,
     github_backup: "unknown" as const,

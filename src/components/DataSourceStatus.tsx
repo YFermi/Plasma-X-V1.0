@@ -110,8 +110,8 @@ export function DataSourceStatus() { // STATUS-COMPONENT
               <div className="space-y-3"> // STATUS-COMPONENT
                 <h3 className="text-xs font-mono text-slate-500 uppercase tracking-widest">Active Data Tier</h3> // STATUS-COMPONENT
                 <div className={cn("flex items-center gap-3 p-4 rounded-lg border", badgeContent.bgColor, badgeContent.borderColor)}> // STATUS-COMPONENT
-                  <div className={cn("p-2 rounded-full", badgeContent.bgColor)}> // STATUS-COMPONENT
-                    {React.cloneElement(badgeContent.icon as React.ReactElement, { className: "w-5 h-5 " + badgeContent.color })} // STATUS-COMPONENT
+                  <div className={cn("p-2 rounded-full", badgeContent.bgColor, badgeContent.color, "[&>svg]:w-5 [&>svg]:h-5")}> // STATUS-COMPONENT
+                    {badgeContent.icon} // STATUS-COMPONENT
                   </div> // STATUS-COMPONENT
                   <div> // STATUS-COMPONENT
                     <div className={cn("text-sm font-bold tracking-widest", badgeContent.color)}>{badgeContent.label}</div> // STATUS-COMPONENT
