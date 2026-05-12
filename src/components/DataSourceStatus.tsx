@@ -158,9 +158,9 @@ export function DataSourceStatus() {
   return (
     <div className="fixed bottom-5 right-5 z-[9999] font-mono flex flex-col items-end">
       {/* Tooltip */}
-      <div className="group relative">
+      <div className="group relative flex justify-end">
         <div className="absolute bottom-full right-0 mb-3 w-max max-w-[250px] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50">
-           <div className="bg-[#0a0a0f]/80 backdrop-blur-md rounded-xl border border-white/10 p-3 text-[11px] text-slate-300 shadow-2xl leading-relaxed whitespace-pre-wrap">
+           <div className="bg-[#0a0a0f]/80 backdrop-blur-md rounded-xl border border-white/10 p-3 text-[11px] text-slate-300 shadow-2xl leading-relaxed whitespace-pre-wrap text-left">
               {config.tooltip}
            </div>
         </div>
@@ -172,7 +172,7 @@ export function DataSourceStatus() {
           className={cn(
             "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-300 max-w-[180px] h-[28px] border",
             "bg-[#0a0a0f]/80 backdrop-blur-[10px]",
-            "hover:scale-102",
+            "hover:scale-[1.02]",
             config.borderColor,
             !mounted && "translate-y-10 opacity-0",
             mounted && "translate-y-0 opacity-100"
