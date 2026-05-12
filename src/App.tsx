@@ -46,6 +46,9 @@ import { MoleculeSearch } from './components/MoleculeSearch';
 import { BoltzmannTool } from './components/BoltzmannTool';
 import { SpectrumSimulator } from './components/SpectrumSimulator';
 import { DataSourceStatus } from './components/DataSourceStatus';
+// NIST-LIVE-INTEGRATION
+import { NistSearch } from './components/NistSearch';
+import { NistStatusDot } from './components/NistStatusDot';
 
 export default function App() {
   return (
@@ -214,6 +217,12 @@ function AppContent() {
           setCurrentView('boltzmann');
         }}
       />;
+      case 'nist_search': return <NistSearch 
+        onAddLines={(lines) => {
+          setBoltzmannLines(prev => [...prev, ...lines]);
+          setCurrentView('boltzmann');
+        }}
+      />;
       case 'molecules': return <MoleculeSearch />;
       case 'boltzmann': return <BoltzmannTool externalLines={boltzmannLines} onClearExternal={() => setBoltzmannLines([])} />;
       case 'simulator': return <SpectrumSimulator />;
@@ -289,6 +298,14 @@ function AppContent() {
             label="Line Search" 
             active={currentView === 'search'} 
             onClick={() => setCurrentView('search')}
+            expanded={sidebarOpen}
+          />
+          <SidebarItem 
+            icon={<Database className="w-5 h-5" />} 
+            label="NIST Live" // NIST-LIVE-INTEGRATION
+            rightElement={<NistStatusDot />} // NIST-LIVE-INTEGRATION
+            active={currentView === 'nist_search'} 
+            onClick={() => setCurrentView('nist_search')}
             expanded={sidebarOpen}
           />
           <SidebarItem 
@@ -544,7 +561,8 @@ function AppContent() {
 
 import { Ripple } from './components/Ripple';
 
-function SidebarItem({ icon, label, active = false, onClick, expanded = true }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void, expanded?: boolean }) {
+// NIST-LIVE-INTEGRATION
+function SidebarItem({ icon, label, active = false, onClick, expanded = true, rightElement }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void, expanded?: boolean, rightElement?: React.ReactNode }) {
   const { playClick } = useSound();
   return (
     <div 
@@ -565,10 +583,18 @@ function SidebarItem({ icon, label, active = false, onClick, expanded = true }: 
         {icon}
       </div>
       {expanded && (
-        <span className="text-xs font-display font-medium tracking-widest uppercase truncate relative z-10">{label}</span>
+        <div className="flex-1 min-w-0 flex items-center justify-between gap-2 relative z-10">
+          <span className="text-xs font-display font-medium tracking-widest uppercase truncate">{label}</span>
+          {rightElement}
+        </div>
       )}
       {!expanded && active && (
         <div className="absolute right-0 w-1 h-6 bg-plasma-cyan rounded-l-full shadow-[0_0_10px_var(--color-plasma-cyan)]" />
+      )}
+      {!expanded && rightElement && (
+        <div className="absolute top-2 right-2">
+          {rightElement}
+        </div>
       )}
       {active && (
         <div className="absolute inset-0 shimmer opacity-20 pointer-events-none" />
