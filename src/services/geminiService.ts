@@ -45,20 +45,25 @@ FORMATTING:
   \`\`\`
 - Emoji: ⚛️ atoms, 🔬 diagnostics, ⚡ plasma, 📊 data, 🎯 precision.`;
 
-export class GeminiService {
-  private ai: GoogleGenAI | null = null;
+// @ts-ignore
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY; // RESILIENCE-FIX
 
+let genAI: GoogleGenAI | null = null; // RESILIENCE-FIX
+
+if (API_KEY) { // RESILIENCE-FIX
+  genAI = new GoogleGenAI({ apiKey: API_KEY }); // RESILIENCE-FIX
+} else { // RESILIENCE-FIX
+  console.warn("VITE_GEMINI_API_KEY not found. AI features disabled but app will still work."); // RESILIENCE-FIX
+} // RESILIENCE-FIX
+
+export class GeminiService {
   async chat(message: string, history: { role: 'user' | 'model', parts: { text: string }[] }[] = []) {
-    if (!this.ai) {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // API-KEY-FIX
-      if (!apiKey) {
-        throw new Error("AI Assistant unavailable — API key not configured.\nAll spectroscopic data features still work normally."); // API-KEY-FIX
-      }
-      this.ai = new GoogleGenAI({ apiKey });
-    }
+    if (!genAI) { // RESILIENCE-FIX
+      return "AI Assistant is not available. Please configure your API key."; // RESILIENCE-FIX
+    } // RESILIENCE-FIX
 
     try {
-      const response = await this.ai.models.generateContent({
+      const response = await genAI.models.generateContent({
         model: "gemini-3.1-pro-preview",
         contents: [
           ...history.map(h => ({ role: h.role, parts: h.parts })),

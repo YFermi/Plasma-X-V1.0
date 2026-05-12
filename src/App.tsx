@@ -355,17 +355,6 @@ function AppContent() {
       <main className="flex-1 flex flex-col relative min-w-0">
         <header className="h-24 border-b border-white/5 flex items-center justify-between px-10 bg-slate-950/20 backdrop-blur-md z-10">
           <div className="flex items-center gap-6">
-             <div className="flex flex-col">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-[11px] font-mono text-slate-400 uppercase tracking-[0.3em]">PLASMA-X STATUS</span>
-                </div>
-                <div className="text-[9px] text-slate-600 font-mono uppercase mt-1 tracking-widest">Channel: Encrypted-Flux-882</div>
-             </div>
-          </div>
-          
-          <div className="flex items-center gap-6">
-             <DataSourceStatus />
              <Clock />
              <div className="w-px h-8 bg-white/5" />
              <button className="p-3 bg-white/5 rounded-xl border border-white/10 hover:border-plasma-cyan/30 text-slate-400 hover:text-white transition-all">
@@ -548,6 +537,7 @@ function AppContent() {
            </div>
         </footer>
       </main>
+      <DataSourceStatus />
     </div>
   );
 }

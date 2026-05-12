@@ -3,6 +3,13 @@
 @import "katex/dist/katex.min.css";
 
 @theme {
+  --animate-status-pulse: status-pulse 2s ease-in-out infinite;
+  
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
   --font-sans: "Exo 2", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Orbitron", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
