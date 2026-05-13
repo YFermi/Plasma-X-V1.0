@@ -101,48 +101,72 @@ export default async function handler(request: Request) {
     const linesStr = preMatch ? preMatch[1].split('\n') : rawText.split('\n');
     const parsedLines = [];
 
+    let observedWlIdx = 0;
+    let ritzWlIdx = 1;
+    let akiIdx = 3;
+    let accIdx = 4;
+    let energyIdx = 5;
+    let confLowIdx = 6;
+    let termLowIdx = 7;
+    let jLowIdx = 8;
+    let confHighIdx = 9;
+    let termHighIdx = 10;
+    let jHighIdx = 11;
+    let headerParsed = false;
+
     for (const line of linesStr) {
       if (!line.trim()) continue;
       if (line.startsWith('---') || line.startsWith('===')) continue;
-      if (line.includes('No lines') || line.includes('Obs.')) continue;
 
       const cols = line.split('|').map(c => c.trim().replace(/<[^>]+>/g, ''));
-      // Adjust indexing to map the expected values exactly as requested
-      // The example has 13 chunks because of an empty column between Ei-Ek and config_i.
-      // But the requirements asked to map exactly indices 0-11.
-      // We will follow the requirements, but gracefully fallback to the correct columns
-      // if 6 is completely empty and 7 is not.
       
-      let observedWlIdx = 0;
-      let ritzWlIdx = 1;
-      let akiIdx = 3;
-      let accIdx = 4;
-      let energyIdx = 5;
-      
-      // Based on the example, cols[6] was empty Ek column. 
-      // If cols[6] is empty and cols[7] has config string, we'll shift indexes for configurations and terms.
-      let confLowIdx = 6;
-      let termLowIdx = 7;
-      let jLowIdx = 8;
-      let confHighIdx = 9;
-      let termHighIdx = 10;
-      let jHighIdx = 11;
-      
-      if (cols.length >= 13 && cols[6] === '' && cols[7] !== '') {
-         confLowIdx = 7;
-         termLowIdx = 8;
-         jLowIdx = 9;
-         confHighIdx = 10;
-         termHighIdx = 11;
-         jHighIdx = 12;
+      // Parse header line to determine column indices dynamically
+      if (!headerParsed && cols.includes('Observed') && cols.includes('Ritz')) {
+        const getIdx = (name: string) => cols.findIndex(c => c.includes(name));
+        const obsIdx = getIdx('Observed');
+        const ritzIdx = getIdx('Ritz');
+        const akiId = getIdx('gA');
+        const accId = getIdx('Acc.');
+        const eiEkId = getIdx('Ei');
+        const lowerId = getIdx('Lower level');
+        
+        if (obsIdx !== -1) observedWlIdx = obsIdx;
+        if (ritzIdx !== -1) ritzWlIdx = ritzIdx;
+        if (akiId !== -1) akiIdx = akiId;
+        if (accId !== -1) accIdx = accId;
+        if (eiEkId !== -1) energyIdx = eiEkId;
+        
+        if (lowerId !== -1) {
+          confLowIdx = lowerId;
+          termLowIdx = lowerId + 1;
+          jLowIdx = lowerId + 2;
+          confHighIdx = lowerId + 3;
+          termHighIdx = lowerId + 4;
+          jHighIdx = lowerId + 5;
+        }
+        
+        headerParsed = true;
+        continue;
       }
       
+      if (line.includes('No lines') || line.includes('Obs.')) continue;
       if (cols.length <= Math.max(jLowIdx, jHighIdx)) {
         continue;
       }
       // Ignore header lines that passed through
-      if (cols[0] === 'Wavelength' || cols[0] === 'Air (nm)' || cols[0] === '') {
+      if (cols[0] === 'Wavelength' || cols[0] === 'Air (nm)' || cols[0] === '' || cols[0] === 'Spectrum') {
         continue;
+      }
+
+      // Handle the extra empty column that sometimes appears in configuration fields
+      let cLow = confLowIdx;
+      let tLow = termLowIdx;
+      let jL = jLowIdx;
+      let cHigh = confHighIdx;
+      let tHigh = termHighIdx;
+      let jH = jHighIdx;
+      if (cols.length >= jH + 2 && cols[cLow] === '' && cols[tLow] !== '') {
+          cLow++; tLow++; jL++; cHigh++; tHigh++; jH++;
       }
 
       let wavelengthStr = cols[observedWlIdx];
@@ -172,12 +196,12 @@ export default async function handler(request: Request) {
          }
       }
 
-      const confLow = cols[confLowIdx] || "";
-      const confHigh = cols[confHighIdx] || "";
-      const termLow = cols[termLowIdx] || "";
-      const termHigh = cols[termHighIdx] || "";
-      const jLow = cols[jLowIdx] || "";
-      const jHigh = cols[jHighIdx] || "";
+      const confLow = cols[cLow] || "";
+      const confHigh = cols[cHigh] || "";
+      const termLow = cols[tLow] || "";
+      const termHigh = cols[tHigh] || "";
+      const jLow = cols[jL] || "";
+      const jHigh = cols[jH] || "";
 
       let gi: number | null = null;
       if (jLow && !isNaN(parseFloat(jLow))) {
