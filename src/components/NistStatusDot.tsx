@@ -10,9 +10,8 @@ export function NistStatusDot() {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 3000);
       
-      await fetch("https://physics.nist.gov/cgi-bin/ASD/lines1.pl", {
-         method: 'HEAD',
-         mode: 'no-cors',
+      await fetch("/api/nist-proxy?element=H&maxLines=1", {
+         method: 'GET',
          signal: controller.signal
       });
       clearTimeout(id);

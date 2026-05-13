@@ -40,40 +40,15 @@ export interface NistResponse {
 }
 
 export function buildNistUrl(params: NistSearchParams): string {
-  const spectra = params.ion ? `${params.element}+${params.ion}` : params.element;
-  
   const urlParams = new URLSearchParams();
-  urlParams.set("spectra", spectra);
-  if (params.wavelengthMin !== undefined) urlParams.set("low_w", params.wavelengthMin.toString());
-  if (params.wavelengthMax !== undefined) urlParams.set("upp_w", params.wavelengthMax.toString());
+  urlParams.set("element", params.element);
+  if (params.ion) urlParams.set("ion", params.ion);
+  if (params.wavelengthMin !== undefined) urlParams.set("wavelengthMin", params.wavelengthMin.toString());
+  if (params.wavelengthMax !== undefined) urlParams.set("wavelengthMax", params.wavelengthMax.toString());
+  if (params.unit) urlParams.set("unit", params.unit);
+  if (params.maxLines !== undefined) urlParams.set("maxLines", params.maxLines.toString());
   
-  let unitCode = "1"; // Default nm
-  if (params.unit === "A") unitCode = "2";
-  if (params.unit === "cm1") unitCode = "3";
-  
-  urlParams.set("unit", unitCode);
-  urlParams.set("submit", "Retrieve Data");
-  urlParams.set("format", "3");
-  urlParams.set("line_out", "1");
-  urlParams.set("en_unit", "1");
-  urlParams.set("output", "0");
-  urlParams.set("bibrefs", "1");
-  urlParams.set("page_size", (params.maxLines || 500).toString());
-  urlParams.set("show_obs_wl", "1");
-  urlParams.set("show_calc_wl", "1");
-  urlParams.set("unc_out", "1");
-  urlParams.set("order_out", "0");
-  urlParams.set("A_out", "1");
-  urlParams.set("f_out", "on");
-  urlParams.set("S_out", "on");
-  urlParams.set("intens_out", "on");
-  urlParams.set("max_low_enrg", "");
-  urlParams.set("max_upp_enrg", "");
-  urlParams.set("tsb_value", "0");
-  urlParams.set("min_str", "");
-  urlParams.set("show_av", "2");
-
-  return "https://physics.nist.gov/cgi-bin/ASD/lines1.pl?" + urlParams.toString();
+  return "/api/nist-proxy?" + urlParams.toString();
 }
 
 export function parseNistAscii(responseText: string): NistLine[] {
@@ -244,46 +219,46 @@ export function filterLocalData(params: NistSearchParams): NistLine[] {
 
 export async function isNistAvailable(): Promise<boolean> {
   try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 2000);
-    await fetch("https://physics.nist.gov/cgi-bin/ASD/lines1.pl", {
-       method: 'HEAD',
-       mode: 'no-cors',
-       signal: controller.signal
-    });
-    clearTimeout(id);
-    return true;
+    const response = await fetch( // PROXY-FIX
+      '/api/nist-proxy?element=Ar&ion=I&wavelengthMin=696&wavelengthMax=697', // PROXY-FIX
+      { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined } // PROXY-FIX
+    ); // PROXY-FIX
+    return response.ok && (await response.json()).success; // PROXY-FIX
   } catch (e) {
     return false;
   }
 }
 
 export async function fetchNistData(params: NistSearchParams): Promise<NistResponse> {
-  // LAYER 1 — Try fetching from NIST directly
+  // LAYER 1 — Try fetching from NIST directly via proxy
   try {
-    const url = buildNistUrl(params);
-    const response = await fetch(url, { 
-      signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined
-    });
+    const proxyUrl = `/api/nist-proxy?` + new URLSearchParams({ // PROXY-FIX
+      element: params.element, // PROXY-FIX
+      ion: params.ion || '', // PROXY-FIX
+      wavelengthMin: String(params.wavelengthMin || 200), // PROXY-FIX
+      wavelengthMax: String(params.wavelengthMax || 1000), // PROXY-FIX
+      unit: params.unit || 'nm' // PROXY-FIX
+    }); // PROXY-FIX
+    const response = await fetch(proxyUrl); // PROXY-FIX
+    const data = await response.json(); // PROXY-FIX
     
-    if (response.ok) {
-      const text = await response.text();
-      const lines = parseNistAscii(text);
+    if (data.success) { // PROXY-FIX
+      const lines = data.lines;
       
       // Cache successful result in localStorage
       cacheResult(params, lines);
       
       return {
-        source: "nist-live",
-        timestamp: new Date().toISOString(),
+        source: "nist-live", // PROXY-FIX
+        timestamp: data.timestamp, // PROXY-FIX
         element: params.element,
         ion: params.ion || "all",
-        count: lines.length,
-        lines: lines
+        count: data.count, // PROXY-FIX
+        lines: data.lines // PROXY-FIX
       };
     }
   } catch (error) {
-    console.warn("NIST live fetch failed:", error);
+    console.warn("NIST proxy fetch failed:", error);
   }
 
   // LAYER 2 — Check localStorage cache
