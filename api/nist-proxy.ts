@@ -50,7 +50,7 @@ export default async function handler(request: Request) {
     wavelengthMax = wavelengthMin + 800;
   }
 
-  const spectra = ion ? `${element}+${ion}` : element;
+  const spectra = ion ? `${element} ${ion}` : element;
   const maxLines = searchParams.get('maxLines') || "500";
   
   const urlParams = new URLSearchParams();
@@ -59,7 +59,7 @@ export default async function handler(request: Request) {
   urlParams.set("upp_w", wavelengthMax.toString());
   urlParams.set("unit", "1");
   urlParams.set("submit", "Retrieve Data");
-  urlParams.set("format", "3");
+  urlParams.set("format", "1");
   urlParams.set("line_out", "1");
   urlParams.set("en_unit", "1");
   urlParams.set("output", "0");
@@ -71,13 +71,17 @@ export default async function handler(request: Request) {
   urlParams.set("order_out", "0");
   urlParams.set("show_av", "2");
   urlParams.set("A_out", "1");
-  urlParams.set("f_out", "on");
-  urlParams.set("S_out", "on");
   urlParams.set("intens_out", "on");
   urlParams.set("tsb_value", "0");
   urlParams.set("min_str", "");
   urlParams.set("max_low_enrg", "");
   urlParams.set("max_upp_enrg", "");
+  urlParams.set("allowed_out", "1");
+  urlParams.set("forbid_out", "1");
+  urlParams.set("enrg_out", "on");
+  urlParams.set("conf_out", "on");
+  urlParams.set("term_out", "on");
+  urlParams.set("J_out", "on");
 
   const nistUrl = "https://physics.nist.gov/cgi-bin/ASD/lines1.pl?" + urlParams.toString();
 
@@ -93,7 +97,8 @@ export default async function handler(request: Request) {
     }
 
     const rawText = await nistResponse.text();
-    const linesStr = rawText.split('\n');
+    const preMatch = rawText.match(/<pre>([\s\S]*?)<\/pre>/i);
+    const linesStr = preMatch ? preMatch[1].split('\n') : rawText.split('\n');
     const parsedLines = [];
 
     for (const line of linesStr) {
@@ -101,7 +106,7 @@ export default async function handler(request: Request) {
       if (line.startsWith('---') || line.startsWith('===')) continue;
       if (line.includes('No lines') || line.includes('Obs.')) continue;
 
-      const cols = line.split('|').map(c => c.trim());
+      const cols = line.split('|').map(c => c.trim().replace(/<[^>]+>/g, ''));
       // Adjust indexing to map the expected values exactly as requested
       // The example has 13 chunks because of an empty column between Ei-Ek and config_i.
       // But the requirements asked to map exactly indices 0-11.
@@ -117,27 +122,35 @@ export default async function handler(request: Request) {
       // Based on the example, cols[6] was empty Ek column. 
       // If cols[6] is empty and cols[7] has config string, we'll shift indexes for configurations and terms.
       let confLowIdx = 6;
-      let confHighIdx = 7;
-      let termLowIdx = 8;
-      let termHighIdx = 9;
-      let jLowIdx = 10;
+      let termLowIdx = 7;
+      let jLowIdx = 8;
+      let confHighIdx = 9;
+      let termHighIdx = 10;
       let jHighIdx = 11;
       
       if (cols.length >= 13 && cols[6] === '' && cols[7] !== '') {
          confLowIdx = 7;
-         confHighIdx = 8;
-         termLowIdx = 9;
-         termHighIdx = 10;
-         jLowIdx = 11;
+         termLowIdx = 8;
+         jLowIdx = 9;
+         confHighIdx = 10;
+         termHighIdx = 11;
          jHighIdx = 12;
       }
-
-      if (cols.length <= Math.max(jLowIdx, jHighIdx)) continue; // Not a valid data line
+      
+      if (cols.length <= Math.max(jLowIdx, jHighIdx)) {
+        continue;
+      }
+      // Ignore header lines that passed through
+      if (cols[0] === 'Wavelength' || cols[0] === 'Air (nm)' || cols[0] === '') {
+        continue;
+      }
 
       let wavelengthStr = cols[observedWlIdx];
       if (!wavelengthStr || isNaN(parseFloat(wavelengthStr))) wavelengthStr = cols[ritzWlIdx];
       const wavelength = parseFloat(wavelengthStr);
-      if (isNaN(wavelength)) continue;
+      if (isNaN(wavelength)) {
+        continue;
+      }
 
       let akiStr = cols[akiIdx].replace(/[^0-9.eE+-]/g, '');
       let aki: number | null = akiStr ? parseFloat(akiStr) : null;
