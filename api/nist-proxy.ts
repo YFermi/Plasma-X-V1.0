@@ -70,7 +70,7 @@ export default async function handler(request: Request) {
   urlParams.set("unc_out", "1");
   urlParams.set("order_out", "0");
   urlParams.set("show_av", "2");
-  urlParams.set("A_out", "1");
+  urlParams.set("A_out", "0");
   urlParams.set("intens_out", "on");
   urlParams.set("tsb_value", "0");
   urlParams.set("min_str", "");
@@ -125,7 +125,7 @@ export default async function handler(request: Request) {
         const getIdx = (name: string) => cols.findIndex(c => c.includes(name));
         const obsIdx = getIdx('Observed');
         const ritzIdx = getIdx('Ritz');
-        const akiId = getIdx('gA');
+        const akiId = getIdx('Aki') !== -1 ? getIdx('Aki') : getIdx('gA');
         const accId = getIdx('Acc.');
         const eiEkId = getIdx('Ei');
         const lowerId = getIdx('Lower level');
