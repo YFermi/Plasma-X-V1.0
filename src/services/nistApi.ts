@@ -134,7 +134,7 @@ export function parseNistAscii(responseText: string): NistLine[] {
 
 export function cacheResult(params: NistSearchParams, lines: NistLine[]): void {
   try {
-    const key = `plasma-x-nist-${params.element.toLowerCase()}-${(params.ion || 'all').toLowerCase()}-${params.wavelengthMin || 'none'}-${params.wavelengthMax || 'none'}`;
+    const key = `plasma-x-nist-v2-${params.element.toLowerCase()}-${(params.ion || 'all').toLowerCase()}-${params.wavelengthMin || 'none'}-${params.wavelengthMax || 'none'}`;
     const data = {
       lines,
       timestamp: new Date().toISOString(),
@@ -148,7 +148,7 @@ export function cacheResult(params: NistSearchParams, lines: NistLine[]): void {
 
 export function getCachedResult(params: NistSearchParams): { lines: NistLine[], timestamp: string } | null {
   try {
-    const key = `plasma-x-nist-${params.element.toLowerCase()}-${(params.ion || 'all').toLowerCase()}-${params.wavelengthMin || 'none'}-${params.wavelengthMax || 'none'}`;
+    const key = `plasma-x-nist-v2-${params.element.toLowerCase()}-${(params.ion || 'all').toLowerCase()}-${params.wavelengthMin || 'none'}-${params.wavelengthMax || 'none'}`;
     const val = localStorage.getItem(key);
     if (val) {
       return JSON.parse(val);
