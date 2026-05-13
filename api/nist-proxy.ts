@@ -61,7 +61,7 @@ export default async function handler(request: Request) {
   urlParams.set("submit", "Retrieve Data");
   urlParams.set("format", "1");
   urlParams.set("line_out", "0");
-  urlParams.set("en_unit", "1");
+  urlParams.set("en_unit", "0");
   urlParams.set("output", "0");
   urlParams.set("bibrefs", "1");
   urlParams.set("page_size", maxLines);
@@ -101,17 +101,22 @@ export default async function handler(request: Request) {
     const linesStr = preMatch ? preMatch[1].split('\n') : rawText.split('\n');
     const parsedLines = [];
 
-    let observedWlIdx = 0;
-    let ritzWlIdx = 1;
-    let akiIdx = 3;
-    let accIdx = 4;
-    let energyIdx = 5;
-    let confLowIdx = 6;
-    let termLowIdx = 7;
-    let jLowIdx = 8;
-    let confHighIdx = 9;
-    let termHighIdx = 10;
-    let jHighIdx = 11;
+    let observedWlIdx = 1;
+    let ritzWlIdx = 2;
+    let uncIdx = 3;
+    let relIntIdx = 4;
+    let akiIdx = 5;
+    let accIdx = 6;
+    let energyIdx = 7;
+    let confLowIdx = 8;
+    let termLowIdx = 9;
+    let jLowIdx = 10;
+    let confHighIdx = 11;
+    let termHighIdx = 12;
+    let jHighIdx = 13;
+    let typeIdx = 14;
+    let tpRefIdx = 15;
+    let lineRefIdx = 16;
     let headerParsed = false;
 
     for (const line of linesStr) {
@@ -125,6 +130,8 @@ export default async function handler(request: Request) {
         const getIdx = (name: string) => cols.findIndex(c => c.includes(name));
         const obsIdx = getIdx('Observed');
         const ritzIdx = getIdx('Ritz');
+        const unIdx = getIdx('Unc.');
+        const relId = getIdx('Rel.');
         const akiId = getIdx('Aki') !== -1 ? getIdx('Aki') : getIdx('gA');
         const accId = getIdx('Acc.');
         const eiEkId = getIdx('Ei');
@@ -132,6 +139,8 @@ export default async function handler(request: Request) {
         
         if (obsIdx !== -1) observedWlIdx = obsIdx;
         if (ritzIdx !== -1) ritzWlIdx = ritzIdx;
+        if (unIdx !== -1) uncIdx = unIdx;
+        if (relId !== -1) relIntIdx = relId;
         if (akiId !== -1) akiIdx = akiId;
         if (accId !== -1) accIdx = accId;
         if (eiEkId !== -1) energyIdx = eiEkId;
@@ -143,6 +152,9 @@ export default async function handler(request: Request) {
           confHighIdx = lowerId + 3;
           termHighIdx = lowerId + 4;
           jHighIdx = lowerId + 5;
+          typeIdx = lowerId + 6;
+          tpRefIdx = lowerId + 7;
+          lineRefIdx = lowerId + 8;
         }
         
         headerParsed = true;
@@ -165,8 +177,12 @@ export default async function handler(request: Request) {
       let cHigh = confHighIdx;
       let tHigh = termHighIdx;
       let jH = jHighIdx;
+      let tyIdx = typeIdx;
+      let tpIdx = tpRefIdx;
+      let lrIdx = lineRefIdx;
+      
       if (cols.length >= jH + 2 && cols[cLow] === '' && cols[tLow] !== '') {
-          cLow++; tLow++; jL++; cHigh++; tHigh++; jH++;
+          cLow++; tLow++; jL++; cHigh++; tHigh++; jH++; tyIdx++; tpIdx++; lrIdx++;
       }
 
       let wavelengthStr = cols[observedWlIdx];
@@ -176,23 +192,30 @@ export default async function handler(request: Request) {
         continue;
       }
 
+      let obsWavelength: number | null = cols[observedWlIdx] ? parseFloat(cols[observedWlIdx]) : null;
+      if (obsWavelength !== null && isNaN(obsWavelength)) obsWavelength = null;
+
+      let ritzWavelength: number | null = cols[ritzWlIdx] ? parseFloat(cols[ritzWlIdx]) : null;
+      if (ritzWavelength !== null && isNaN(ritzWavelength)) ritzWavelength = null;
+
+      let unc = cols[uncIdx] || "";
+      let relInt = cols[relIntIdx] || "";
+
       let akiStr = cols[akiIdx].replace(/[^0-9.eE+-]/g, '');
       let aki: number | null = akiStr ? parseFloat(akiStr) : null;
       if (aki !== null && isNaN(aki)) aki = null;
 
       const accuracy = cols[accIdx] || "";
 
-      let energyLow: number | null = null;
-      let energyHigh: number | null = null;
+      let energyLow: string = "";
+      let energyHigh: string = "";
       if (cols[energyIdx]) {
          const eParts = cols[energyIdx].split('-');
          if (eParts.length > 0) {
-           const eiStr = eParts[0].trim();
-           if (eiStr) energyLow = parseFloat(eiStr) / 8065.54;
+           energyLow = eParts[0].trim().replace(/^\[|\]$/g, '');
          }
          if (eParts.length > 1) {
-           const ekStr = eParts[1].trim();
-           if (ekStr) energyHigh = parseFloat(ekStr) / 8065.54;
+           energyHigh = eParts[1].trim().replace(/^\[|\]$/g, '');
          }
       }
 
@@ -202,32 +225,31 @@ export default async function handler(request: Request) {
       const termHigh = cols[tHigh] || "";
       const jLow = cols[jL] || "";
       const jHigh = cols[jH] || "";
-
-      let gi: number | null = null;
-      if (jLow && !isNaN(parseFloat(jLow))) {
-         gi = 2 * parseFloat(jLow) + 1;
-      }
-      let gk: number | null = null;
-      if (jHigh && !isNaN(parseFloat(jHigh))) {
-         gk = 2 * parseFloat(jHigh) + 1;
-      }
+      const type = cols[tyIdx] || "";
+      const tpRef = cols[tpIdx] || "";
+      const lineRef = cols[lrIdx] || "";
 
       parsedLines.push({
-        wavelength,
         element,
-        ion: ion || "",
+        ion: cols[0] || ion || "",
+        wavelength,
+        obsWavelength,
+        ritzWavelength,
+        unc,
+        relInt,
         aki,
-        gk,
-        gi,
         accuracy,
-        energyLow: energyLow !== null && !isNaN(energyLow) ? Number(energyLow.toFixed(4)) : null,
-        energyHigh: energyHigh !== null && !isNaN(energyHigh) ? Number(energyHigh.toFixed(4)) : null,
+        energyLow,
+        energyHigh,
         confLow,
         confHigh,
         termLow,
         termHigh,
         jLow,
-        jHigh
+        jHigh,
+        type,
+        tpRef,
+        lineRef
       });
     }
 

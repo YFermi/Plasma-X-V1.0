@@ -116,19 +116,31 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
     const linesToAdd: SpectralLine[] = [];
     selectedLines.forEach(index => {
       const l = results.lines[index];
+      
+      const ei = l.energyLow ? parseFloat(l.energyLow) : 0;
+      const ek = l.energyHigh ? parseFloat(l.energyHigh) : 0;
+      const gk = l.jHigh ? (2 * parseFloat(l.jHigh) + 1) : 0;
+      const gi = l.jLow ? (2 * parseFloat(l.jLow) + 1) : 0;
+      
       linesToAdd.push({
         id: `nist-${l.element}-${l.ion}-${l.wavelength}-${index}`,
         element: l.element,
         ion: l.ion,
         wavelength: l.wavelength,
         aki: l.aki || 0,
-        gk: l.gk || 0,
-        gi: l.gi || 0,
-        energyLow: l.energyLow || 0,
-        energyHigh: l.energyHigh || 0,
+        gk: Number.isNaN(gk) ? 0 : gk,
+        gi: Number.isNaN(gi) ? 0 : gi,
+        confLow: l.confLow,
+        confHigh: l.confHigh,
+        termLow: l.termLow,
+        termHigh: l.termHigh,
+        jLow: l.jLow,
+        jHigh: l.jHigh,
+        energyLow: ei / 8065.54,
+        energyHigh: ek / 8065.54,
         accuracy: l.accuracy,
         source: `NIST (${results.source})`
-      });
+      } as any);
     });
     onAddLines(linesToAdd);
     setSelectedLines(new Set());
@@ -137,9 +149,34 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
   const handleExportCSV = () => {
     if (!results) return;
     
-    const headers = ['Wavelength (nm)', 'Element', 'Ion', 'Aki (s-1)', 'gk', 'gi', 'E_low (cm-1)', 'E_high (cm-1)', 'Accuracy'];
+    const headers = [
+      'Element', 'Ion', 'Observed Wavelength (nm)', 'Ritz Wavelength (nm)',
+      'Unc. (nm)', 'Rel. Int.', 'Aki (s^-1)', 'Acc.', 'Ei (cm^-1)', 'Ek (cm^-1)',
+      'Lower Level Conf.', 'Lower Level Term', 'Lower J',
+      'Upper Level Conf.', 'Upper Level Term', 'Upper J',
+      'Type', 'TP Ref.', 'Line Ref.'
+    ];
+    
     const rows = results.lines.map(l => [
-      l.wavelength, l.element, l.ion, l.aki || '', l.gk || '', l.gi || '', l.energyLow || '', l.energyHigh || '', l.accuracy
+      l.element,
+      l.ion,
+      l.obsWavelength ?? '',
+      l.ritzWavelength ?? '',
+      l.unc ?? '',
+      l.relInt ?? '',
+      l.aki ?? '',
+      l.accuracy ?? '',
+      l.energyLow ?? '',
+      l.energyHigh ?? '',
+      l.confLow ?? '',
+      l.termLow ?? '',
+      l.jLow ?? '',
+      l.confHigh ?? '',
+      l.termHigh ?? '',
+      l.jHigh ?? '',
+      l.type ?? '',
+      l.tpRef ?? '',
+      l.lineRef ?? ''
     ]);
     
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -340,10 +377,10 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
             </div>
 
             <div className="flex-1 overflow-auto custom-scrollbar relative">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-slate-900 border-b border-white/10 z-10 text-[10px] font-mono uppercase tracking-widest text-slate-500 shadow-xl">
+              <table className="min-w-max w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-slate-900 border-b border-white/10 z-10 text-[10px] font-mono uppercase tracking-widest text-slate-500 shadow-xl whitespace-nowrap">
                   <tr>
-                    <th className="p-3 w-12 text-center">
+                    <th className="p-3 w-12 text-center sticky left-0 bg-slate-900 border-r border-white/5">
                       <button onClick={toggleAll} className="hover:text-white transition-colors">
                         {selectedLines.size === results.lines.length && results.lines.length > 0 ? 
                           <CheckSquare className="w-4 h-4 text-plasma-cyan" /> : 
@@ -351,14 +388,25 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
                         }
                       </button>
                     </th>
-                    <th className="p-3 font-medium">Wavelength (nm)</th>
                     <th className="p-3 font-medium">Element</th>
                     <th className="p-3 font-medium">Ion</th>
+                    <th className="p-3 font-medium">Obs. Wavelength Vac (nm)</th>
+                    <th className="p-3 font-medium">Ritz Wavelength Vac (nm)</th>
+                    <th className="p-3 font-medium">Unc. (nm)</th>
+                    <th className="p-3 font-medium">Rel. Int.</th>
                     <th className="p-3 font-medium">Aki (s⁻¹)</th>
-                    <th className="p-3 font-medium">gk</th>
-                    <th className="p-3 font-medium">gi</th>
-                    <th className="p-3 font-medium">Acc</th>
-                    <th className="p-3 font-medium">Terms (Low-High)</th>
+                    <th className="p-3 font-medium">Acc.</th>
+                    <th className="p-3 font-medium">Ei (cm⁻¹)</th>
+                    <th className="p-3 font-medium">Ek (cm⁻¹)</th>
+                    <th className="p-3 font-medium">Lower Conf.</th>
+                    <th className="p-3 font-medium">Lower Term</th>
+                    <th className="p-3 font-medium">Lower J</th>
+                    <th className="p-3 font-medium">Upper Conf.</th>
+                    <th className="p-3 font-medium">Upper Term</th>
+                    <th className="p-3 font-medium">Upper J</th>
+                    <th className="p-3 font-medium">Type</th>
+                    <th className="p-3 font-medium">TP Ref.</th>
+                    <th className="p-3 font-medium">Line Ref.</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm font-mono divide-y divide-white/5">
@@ -371,12 +419,12 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
                         <tr 
                           onClick={() => toggleRowExpand(i)}
                           className={cn(
-                            "cursor-pointer transition-colors group relative",
+                            "cursor-pointer transition-colors group whitespace-nowrap",
                             isSelected ? "bg-plasma-cyan/5" : "hover:bg-white/5",
                             isExpanded && "bg-white/5 border-l-2 border-l-plasma-cyan"
                           )}
                         >
-                          <td className="p-3 text-center" onClick={(e) => { e.stopPropagation(); toggleRowSelect(i); }}>
+                          <td className="p-3 text-center sticky left-0 bg-slate-900 border-r border-white/5" onClick={(e) => { e.stopPropagation(); toggleRowSelect(i); }}>
                             <button className="hover:text-plasma-cyan transition-colors">
                               {isSelected ? 
                                 <CheckSquare className="w-4 h-4 text-plasma-cyan" /> : 
@@ -384,47 +432,41 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
                               }
                             </button>
                           </td>
-                          <td className="p-3 text-plasma-cyan font-bold">{line.wavelength.toFixed(4)}</td>
-                          <td className="p-3">{line.element}</td>
-                          <td className="p-3">{line.ion}</td>
-                          <td className="p-3 text-plasma-magenta leading-none">{formatAki(line.aki)}</td>
-                          <td className="p-3 text-slate-400">{line.gk ?? '—'}</td>
-                          <td className="p-3 text-slate-400">{line.gi ?? '—'}</td>
+                          <td className="p-3 text-white">{line.element}</td>
+                          <td className="p-3 text-slate-300">{line.ion}</td>
+                          <td className="p-3 text-plasma-cyan font-bold">{line.obsWavelength?.toFixed(4) || '—'}</td>
+                          <td className="p-3 text-plasma-cyan font-bold">{line.ritzWavelength?.toFixed(4) || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.unc || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.relInt || '—'}</td>
+                          <td className="p-3 text-plasma-magenta font-medium">{formatAki(line.aki)}</td>
                           <td className="p-3 text-[#ffcc00]">{line.accuracy || '—'}</td>
-                          <td className="p-3 text-slate-400">{line.termLow} — {line.termHigh}</td>
+                          <td className="p-3 text-slate-400">{line.energyLow || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.energyHigh || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.confLow || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.termLow || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.jLow || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.confHigh || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.termHigh || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.jHigh || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.type || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.tpRef || '—'}</td>
+                          <td className="p-3 text-slate-400">{line.lineRef || '—'}</td>
                         </tr>
                         
                         {isExpanded && (
                           <tr className="bg-black/20 border-b border-black">
-                            <td colSpan={9} className="p-4 pl-16">
-                              <div className="grid grid-cols-4 gap-6 text-xs text-slate-400">
-                                <div className="space-y-1">
-                                  <div className="text-[10px] text-slate-600 uppercase tracking-widest">Energy Levels (cm⁻¹)</div>
-                                  <div><span className="text-white">Low:</span> {line.energyLow ?? 'Unknown'}</div>
-                                  <div><span className="text-white">High:</span> {line.energyHigh ?? 'Unknown'}</div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="text-[10px] text-slate-600 uppercase tracking-widest">Configurations</div>
-                                  <div><span className="text-white">Low:</span> {line.confLow || '—'}</div>
-                                  <div><span className="text-white">High:</span> {line.confHigh || '—'}</div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="text-[10px] text-slate-600 uppercase tracking-widest">J Values (Angular Mom.)</div>
-                                  <div><span className="text-white">Low:</span> {line.jLow || '—'}</div>
-                                  <div><span className="text-white">High:</span> {line.jHigh || '—'}</div>
-                                </div>
-                                <div className="flex flex-col items-end justify-center">
-                                  <button 
-                                    onClick={() => {
-                                      const newSel = new Set(selectedLines);
-                                      newSel.add(i);
-                                      setSelectedLines(newSel);
-                                    }}
-                                    className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded transition-colors"
-                                  >
-                                    Select Line
-                                  </button>
-                                </div>
+                            <td colSpan={20} className="p-4 pl-16">
+                              <div className="flex flex-col items-start gap-4">
+                                <button 
+                                  onClick={() => {
+                                    const newSel = new Set(selectedLines);
+                                    newSel.add(i);
+                                    setSelectedLines(newSel);
+                                  }}
+                                  className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded transition-colors"
+                                >
+                                  Select Line For Analysis
+                                </button>
                               </div>
                             </td>
                           </tr>

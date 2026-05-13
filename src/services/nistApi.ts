@@ -11,22 +11,26 @@ export interface NistSearchParams {
 }
 
 export interface NistLine {
-  wavelength: number;
-  wavelengthVac?: number;
   element: string;
   ion: string;
+  wavelength: number;
+  obsWavelength: number | null;
+  ritzWavelength: number | null;
+  unc: string;
+  relInt: string;
   aki: number | null;
-  gk: number | null;
-  gi: number | null;
   accuracy: string;
-  energyLow: number | null;
-  energyHigh: number | null;
+  energyLow: string;
+  energyHigh: string;
   confLow: string;
   confHigh: string;
   termLow: string;
   termHigh: string;
   jLow: string;
   jHigh: string;
+  type: string;
+  tpRef: string;
+  lineRef: string;
 }
 
 export interface NistResponse {
@@ -198,20 +202,25 @@ export function filterLocalData(params: NistSearchParams): NistLine[] {
     .map(line => {
       return {
         wavelength: line.wavelength,
+        obsWavelength: line.wavelength,
+        ritzWavelength: line.wavelength,
+        unc: "",
+        relInt: "",
         element: line.element,
         ion: line.ion,
         aki: line.aki,
-        gk: line.gk,
-        gi: line.gi,
         accuracy: line.accuracy,
-        energyLow: line.energyLow,
-        energyHigh: line.energyHigh,
+        energyLow: line.energyLow?.toString() || "",
+        energyHigh: line.energyHigh?.toString() || "",
         confLow: line.confLow,
         confHigh: line.confHigh,
         termLow: line.termLow,
         termHigh: line.termHigh,
         jLow: line.jLow,
         jHigh: line.jHigh,
+        type: "",
+        tpRef: "",
+        lineRef: ""
       } as NistLine;
     })
     .slice(0, params.maxLines || 100);
