@@ -239,7 +239,7 @@ export function NistSearch({ onAddLines }: { onAddLines: (lines: SpectralLine[])
                 onChange={(e) => setMaxLines(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-plasma-cyan/50"
               >
-                {['50', '100', '250', '500', '1000'].map(l => (
+                {['50', '100', '250', '500', '1000', '2500', '5000'].map(l => (
                   <option key={l} value={l}>{l}</option>
                 ))}
               </select>

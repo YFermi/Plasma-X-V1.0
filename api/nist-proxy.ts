@@ -60,7 +60,7 @@ export default async function handler(request: Request) {
   urlParams.set("unit", "1");
   urlParams.set("submit", "Retrieve Data");
   urlParams.set("format", "1");
-  urlParams.set("line_out", "1");
+  urlParams.set("line_out", "0");
   urlParams.set("en_unit", "1");
   urlParams.set("output", "0");
   urlParams.set("bibrefs", "1");
