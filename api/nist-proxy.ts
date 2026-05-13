@@ -154,7 +154,7 @@ export default async function handler(request: Request) {
         continue;
       }
       // Ignore header lines that passed through
-      if (cols[0] === 'Wavelength' || cols[0] === 'Air (nm)' || cols[0] === '' || cols[0] === 'Spectrum') {
+      if (cols[0] === 'Wavelength' || cols[0] === 'Air (nm)' || cols[0] === 'Spectrum') {
         continue;
       }
 
