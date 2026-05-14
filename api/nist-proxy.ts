@@ -118,6 +118,7 @@ export default async function handler(request: Request) {
     let tpRefIdx = 15;
     let lineRefIdx = 16;
     let headerParsed = false;
+    let currentIon = ion || "";
 
     for (const line of linesStr) {
       if (!line.trim()) continue;
@@ -229,9 +230,13 @@ export default async function handler(request: Request) {
       const tpRef = cols[tpIdx] || "";
       const lineRef = cols[lrIdx] || "";
 
+      if (cols[0] && cols[0] !== '') {
+         currentIon = cols[0];
+      }
+
       parsedLines.push({
         element,
-        ion: cols[0] || ion || "",
+        ion: currentIon,
         wavelength,
         obsWavelength,
         ritzWavelength,
