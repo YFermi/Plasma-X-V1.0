@@ -229,7 +229,7 @@ export function filterLocalData(params: NistSearchParams): NistLine[] {
 export async function isNistAvailable(): Promise<boolean> {
   try {
     const response = await fetch( // PROXY-FIX
-      '/api/nist-proxy?element=Ar&ion=I&wavelengthMin=696&wavelengthMax=697', // PROXY-FIX
+      `/api/nist-proxy?element=Ar&ion=I&wavelengthMin=696&wavelengthMax=697&_bust=${Date.now()}`, // PROXY-FIX
       { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined } // PROXY-FIX
     ); // PROXY-FIX
     return response.ok && (await response.json()).success; // PROXY-FIX
@@ -246,7 +246,8 @@ export async function fetchNistData(params: NistSearchParams): Promise<NistRespo
       ion: params.ion || '', // PROXY-FIX
       wavelengthMin: String(params.wavelengthMin || 200), // PROXY-FIX
       wavelengthMax: String(params.wavelengthMax || 1000), // PROXY-FIX
-      unit: params.unit || 'nm' // PROXY-FIX
+      unit: params.unit || 'nm', // PROXY-FIX
+      _bust: String(Date.now())
     }); // PROXY-FIX
     const response = await fetch(proxyUrl); // PROXY-FIX
     const data = await response.json(); // PROXY-FIX
