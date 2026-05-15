@@ -3,11 +3,6 @@
   "outputDirectory": "plasmax/dist",
   "installCommand": "npm install",
   "framework": null,
-  "functions": {
-    "api/*.ts": {
-      "runtime": "edge"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/:path*",
