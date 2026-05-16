@@ -17,7 +17,9 @@ import {
   LayoutDashboard,
   Menu,
   X,
-  Plus
+  Plus,
+  Flame,
+  Waves
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -50,6 +52,8 @@ import { DataSourceStatus } from './components/DataSourceStatus';
 import { NistSearch } from './components/NistSearch';
 import { NistStatusDot } from './components/NistStatusDot';
 import StarkCalculator from './components/StarkCalculator'; // RESTORED
+import H2TemperatureCalculator from './components/H2TemperatureCalculator'; // MERGE-INTEGRATION
+import MolecularFitting from './components/MolecularFitting'; // MERGE-INTEGRATION
 
 export default function App() {
   return (
@@ -227,6 +231,8 @@ function AppContent() {
       case 'molecules': return <MoleculeSearch />;
       case 'boltzmann': return <BoltzmannTool externalLines={boltzmannLines} onClearExternal={() => setBoltzmannLines([])} />;
       case 'stark': return <StarkCalculator />; // RESTORED
+      case 'h2temp': return <H2TemperatureCalculator />; // MERGE-INTEGRATION
+      case 'molfit': return <MolecularFitting />; // MERGE-INTEGRATION
       case 'simulator': return <SpectrumSimulator />;
       default: return (
         <div className="flex flex-col items-center justify-center h-[70vh] text-center space-y-4">
@@ -331,6 +337,20 @@ function AppContent() {
             onClick={() => setCurrentView('stark')}
             expanded={sidebarOpen}
           /> {/* RESTORED */}
+          <SidebarItem 
+            icon={<Flame className="w-5 h-5" />} 
+            label="🔥 H₂ Tgas" 
+            active={currentView === 'h2temp'}
+            onClick={() => setCurrentView('h2temp')}
+            expanded={sidebarOpen}
+          /> {/* MERGE-INTEGRATION */}
+          <SidebarItem 
+            icon={<Waves className="w-5 h-5" />} 
+            label="🌊 Mol Fit" 
+            active={currentView === 'molfit'}
+            onClick={() => setCurrentView('molfit')}
+            expanded={sidebarOpen}
+          /> {/* MERGE-INTEGRATION */}
           <SidebarItem 
             icon={<Activity className="w-5 h-5" />} 
             label="Diagnostics" 

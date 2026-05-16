@@ -62,6 +62,8 @@ export function Dashboard({ onNavigate, onElementSelect }: DashboardProps) { // 
           { icon: <Search className="w-6 h-6 text-plasma-cyan" />, title: "Line Finder", desc: "Identify elements from wavelengths in spectral records", tab: 'search' },
           { icon: <Atom className="w-6 h-6 text-plasma-cyan" />, title: "Molecules", desc: "Diatomic spectral bands (OH, N2, CN, etc.)", tab: 'molecules' },
           { icon: <LineChart className="w-6 h-6 text-plasma-magenta" />, title: "Boltzmann Plot", desc: "Analyze Te from relative intensities", tab: 'boltzmann' },
+          { icon: <span className="text-xl">🔥</span>, title: "Gas Temperature", desc: "Calculate Tgas from H2/N2 spectra or use predefined methods", tab: 'h2temp' }, // MERGE-INTEGRATION
+          { icon: <span className="text-xl">🌊</span>, title: "Molecular Fitting", desc: "Extract Trot and Tvib from band spectra", tab: 'molfit' }, // MERGE-INTEGRATION
           { icon: <Zap className="w-6 h-6 text-plasma-amber" />, title: "Spectrum Synth", desc: "Simulate real-time LTE plasma emission", tab: 'simulator' },
           { icon: <Activity className="w-6 h-6 text-green-400" />, title: "Diagnostics", desc: "Advanced Te and ne measurement advisors", tab: 'diagnostics' }
         ].map((item, i) => (
