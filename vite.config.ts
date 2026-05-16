@@ -12,7 +12,8 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       build: {
-        outDir: 'dist' // DEPLOYMENT-FIX
+        outDir: 'dist', // DEPLOYMENT-FIX
+        chunkSizeWarningLimit: 8000
       },
       plugins: [tailwindcss(), react()],
       define: {
