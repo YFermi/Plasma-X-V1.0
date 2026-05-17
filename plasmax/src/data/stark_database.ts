@@ -266,8 +266,28 @@ export function calculateNe(
 }
 
 export function formatNe(ne_cm3: number): string {
-  if (ne_cm3 <= 0) return "Invalid";
+  if (!isFinite(ne_cm3) || ne_cm3 <= 0) return "—";
   const exp = Math.floor(Math.log10(ne_cm3));
   const mantissa = ne_cm3 / Math.pow(10, exp);
-  return `${mantissa.toFixed(2)} × 10^${exp}`;
+  const supMap: Record<string, string> = {
+    '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴',
+    '5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
+    '-':'⁻'
+  };
+  const expStr = String(exp)
+    .split('')
+    .map(c => supMap[c] ?? c)
+    .join('');
+  return `${mantissa.toFixed(2)} × 10${expStr}`;
+}
+
+export function formatNeRange(
+  ne_cm3: number,
+  uncertainty_percent: number
+): string {
+  if (!isFinite(ne_cm3) || ne_cm3 <= 0) return "—";
+  const f = uncertainty_percent / 100;
+  const ne_min = ne_cm3 * (1 - f);
+  const ne_max = ne_cm3 * (1 + f);
+  return `${formatNe(ne_min)} – ${formatNe(ne_max)}`;
 }

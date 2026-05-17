@@ -4,6 +4,10 @@ import {
   N2_SPS_MODEL,
   C2_SWAN_MODEL, 
   CN_VIOLET_MODEL,
+  OH_UV_MODEL,
+  N2P_FNS_MODEL,
+  NO_BETA_MODEL,
+  NH_MODEL,
   type MolecularModel
 } from '../utils/molSpectro';
 import {
@@ -18,16 +22,101 @@ import {
 } from 'recharts';
 import { Download, Upload, Activity, RefreshCw } from 'lucide-react';
 
-type Molecule = 'N2' | 'C2' | 'CN';
+type Molecule = 'N2' | 'C2' | 'CN' | 'OH' | 'N2+' | 'NO' | 'NH';
+
+// Molecules where only Trot is meaningful
+// (Tvib not independently extractable)
+const TROT_ONLY = new Set<Molecule>(['OH', 'NH']);
 
 // NEW
 function getModel(molecule: Molecule): MolecularModel {
   switch(molecule) {
-    case 'N2': return N2_SPS_MODEL;
-    case 'C2': return C2_SWAN_MODEL;
-    case 'CN': return CN_VIOLET_MODEL;
+    case 'N2':  return N2_SPS_MODEL;
+    case 'C2':  return C2_SWAN_MODEL;
+    case 'CN':  return CN_VIOLET_MODEL;
+    case 'OH':  return OH_UV_MODEL;
+    case 'N2+': return N2P_FNS_MODEL;
+    case 'NO':  return NO_BETA_MODEL;
+    case 'NH':  return NH_MODEL;
   }
 }
+
+const MOLECULE_META: Record<Molecule, {
+  display: string;
+  system: string;
+  range: string;
+  badge: string;
+  badgeColor: string;
+  group: string;
+  demoTrot: number;
+  demoTvib: number;
+  demoInst: number;
+  demoDesc: string;
+  info: string;
+}> = {
+  N2: {
+    display: 'N₂', system: 'C³Πᵤ→B³Πg',
+    range: '366–376 nm', badge: 'Trot + Tvib',
+    badgeColor: '#00f0ff', group: 'Nitrogen',
+    demoTrot: 500, demoTvib: 4000, demoInst: 0.15,
+    demoDesc: 'DBD plasma in air — cold gas, elevated Tvib',
+    info: 'Standard diagnostic for all N₂/air plasma. Trot approximates Tgas at pressures above 10 Torr. Tvib is typically elevated in non-equilibrium discharges.'
+  },
+  C2: {
+    display: 'C₂', system: 'd³Πg→a³Πᵤ',
+    range: '512–517 nm', badge: 'Trot + Tvib',
+    badgeColor: '#00f0ff', group: 'Carbon',
+    demoTrot: 3000, demoTvib: 6000, demoInst: 0.10,
+    demoDesc: 'Arc plasma with carbon electrodes',
+    info: 'C₂ Swan bands appear in carbon-containing plasma. The characteristic green emission. Both Trot and Tvib measurable from the rotational envelope shape.'
+  },
+  CN: {
+    display: 'CN', system: 'B²Σ⁺→X²Σ⁺',
+    range: '385–389 nm', badge: 'Trot + Tvib',
+    badgeColor: '#00f0ff', group: 'Carbon',
+    demoTrot: 1500, demoTvib: 5000, demoInst: 0.10,
+    demoDesc: 'N₂-CH₄ plasma mixture',
+    info: 'CN violet system indicates N₂-carbon chemistry. As a Σ→Σ transition, no Q-branch exists. Three overlapping bands create the characteristic triple-peak pattern.'
+  },
+  OH: {
+    display: 'OH', system: 'A²Σ⁺→X²Π',
+    range: '306–320 nm', badge: 'Tgas',
+    badgeColor: '#ff6b35', group: 'O / H',
+    demoTrot: 1200, demoTvib: 1200, demoInst: 0.10,
+    demoDesc: 'Atmospheric DBD with humidity — Trot = Tgas',
+    info: 'Most sensitive atmospheric plasma diagnostic. OH rotational temperature directly equals Tgas for collisional plasma. Essential for DBD, APPJ, and biomedical plasma.'
+  },
+  'N2+': {
+    display: 'N₂⁺', system: 'B²Σᵤ⁺→X²Σg⁺',
+    range: '388–428 nm', badge: 'Trot + Tvib',
+    badgeColor: '#00f0ff', group: 'Nitrogen',
+    demoTrot: 800, demoTvib: 6000, demoInst: 0.15,
+    demoDesc: 'High-voltage N₂ discharge — strong ionization',
+    info: 'First Negative System of ionized nitrogen. Presence indicates high reduced electric field E/N > 100 Td. Always present alongside N₂ SPS in high-energy discharges.'
+  },
+  NO: {
+    display: 'NO', system: 'A²Σ⁺→X²Π',
+    range: '226–270 nm', badge: 'Trot + Tvib',
+    badgeColor: '#00f0ff', group: 'Nitrogen',
+    demoTrot: 2000, demoTvib: 4000, demoInst: 0.15,
+    demoDesc: 'Air plasma — NOx production conditions',
+    info: 'NO beta system is key indicator of air plasma chemistry and NOx production. Important for plasma-assisted combustion. Requires quartz optics (UV range).'
+  },
+  NH: {
+    display: 'NH', system: 'A³Π→X³Σ⁻',
+    range: '328–342 nm', badge: 'Tgas',
+    badgeColor: '#ff6b35', group: 'Nitrogen',
+    demoTrot: 1000, demoTvib: 1000, demoInst: 0.12,
+    demoDesc: 'N₂-H₂ plasma mixture — plasma nitriding',
+    info: 'NH radical diagnostic for N₂-H₂ plasma and plasma nitriding. Trot directly measures heavy particle temperature. Triplet system with three Ω sub-components.'
+  }
+};
+
+const MOLECULE_GROUPS: { label: string; members: Molecule[] }[] = [
+  { label: 'Nitrogen Systems', members: ['N2', 'N2+', 'NO', 'NH'] },
+  { label: 'Carbon Systems',   members: ['C2', 'CN'] },
+  { label: 'O / H Systems',    members: ['OH'] }
+];
 
 interface FitResult {
   Trot: number;
@@ -105,17 +194,11 @@ export default function MolecularFitting() {
       (_, i) => range[0] + (range[1]-range[0]) * i/(n-1)
     );
     
-    const demoParams = {
-      N2: { trot: 500,  tvib: 4000 },
-      C2: { trot: 3000, tvib: 6000 },
-      CN: { trot: 1500, tvib: 5000 }
-    };
-    
-    const params = demoParams[molecule];
+    const params = MOLECULE_META[molecule];
     const synth = generateSyntheticManifold({
-      trot: params.trot,
-      tvib: params.tvib,
-      inst: 0.1,      // high resolution demo
+      trot: params.demoTrot,
+      tvib: params.demoTvib,
+      inst: params.demoInst,
       shift: 0,
       model,
       targetAxis,
@@ -227,8 +310,9 @@ export default function MolecularFitting() {
       return loss;
     };
   
-    let bestTrot = 1000;
-    let bestTvib = 5000;
+    const meta = MOLECULE_META[selectedMolecule];
+    let bestTrot = meta.demoTrot;
+    let bestTvib = meta.demoTvib;
     let bestShift = 0;
   
     // Coarse shift scan to handle uncalibrated spectrometers
@@ -257,10 +341,17 @@ export default function MolecularFitting() {
       else if (getLoss(bestTrot - stepT, bestTvib, bestShift) 
           < baseLoss) bestTrot -= stepT;
   
-      if (getLoss(bestTrot, bestTvib + stepT*2, bestShift) 
-          < baseLoss) bestTvib += stepT * 2;
-      else if (getLoss(bestTrot, bestTvib - stepT*2, bestShift) 
-          < baseLoss) bestTvib -= stepT * 2;
+      // For Trot-only molecules (OH, NH) fix Tvib = Trot
+      // These molecules thermalize rapidly —
+      // rotational and vibrational are coupled
+      if (!TROT_ONLY.has(selectedMolecule)) {
+        if (getLoss(bestTrot, bestTvib + stepT*2, bestShift) 
+            < baseLoss) bestTvib += stepT * 2;
+        else if (getLoss(bestTrot, bestTvib - stepT*2, bestShift) 
+            < baseLoss) bestTvib -= stepT * 2;
+      } else {
+        bestTvib = bestTrot;
+      }
   
       setFitResult({
         Trot: Math.round(bestTrot),
@@ -344,40 +435,61 @@ export default function MolecularFitting() {
         </div>
       </div>
 
-      {/* SECTION 2: Molecule Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { id: 'N2', name: 'N₂', sub: '2nd Positive', range: '300-400 nm', bands: '5 band heads' },
-          { id: 'C2', name: 'C₂', sub: 'Swan Bands', range: '470-570 nm', bands: '2 band heads' },
-          { id: 'CN', name: 'CN', sub: 'Violet System', range: '350-390 nm', bands: '3 band heads' }
-        ].map(mol => (
-          <button
-            key={mol.id}
-            onClick={() => {
-              setSelectedMolecule(mol.id as Molecule);
-              setExperimentalSpectrum(null);
-              setSyntheticSpectrum(null);
-              setFitResult(null);
-              setChartData([]);
-            }}
-            className={`p-5 rounded-lg border text-left transition-all duration-300 relative overflow-hidden backdrop-blur-sm ${
-              selectedMolecule === mol.id 
-                ? 'bg-[#00f0ff]/10 border-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.2)]' 
-                : 'bg-white/5 border-white/10 hover:bg-white/10'
-            }`}
-          >
-            {selectedMolecule === mol.id && (
-              <div className="absolute top-0 right-0 w-16 h-16 bg-[#00f0ff]/20 blur-2xl rounded-full mix-blend-screen" />
-            )}
-            <h3 className={`text-2xl font-bold ${selectedMolecule === mol.id ? 'text-[#00f0ff]' : 'text-white'}`}>
-              {mol.name}
-            </h3>
-            <p className="text-sm text-gray-300 font-medium mb-2">{mol.sub}</p>
-            <div className="flex justify-between items-center text-xs font-mono text-gray-500">
-              <span>{mol.range}</span>
-              <span>{mol.bands}</span>
+      {/* SECTION 2: Molecule Selector — grouped */}
+      <div className="space-y-4">
+        {MOLECULE_GROUPS.map(group => (
+          <div key={group.label}>
+            <div className="text-xs font-mono text-gray-500 uppercase tracking-widest mb-2 pl-1">
+              {group.label}
             </div>
-          </button>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {group.members.map(mol => {
+                const m = MOLECULE_META[mol];
+                const sel = selectedMolecule === mol;
+                return (
+                  <button
+                    key={mol}
+                    onClick={() => {
+                      setSelectedMolecule(mol);
+                      setExperimentalSpectrum(null);
+                      setSyntheticSpectrum(null);
+                      setFitResult(null);
+                      setChartData([]);
+                      setFwhmNm(m.demoInst);
+                    }}
+                    className={`p-4 rounded-lg border text-left transition-all duration-300 relative overflow-hidden backdrop-blur-sm ${
+                      sel
+                        ? 'bg-[#00f0ff]/10 border-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.2)]'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    {sel && (
+                      <div className="absolute top-0 right-0 w-12 h-12 bg-[#00f0ff]/20 blur-2xl rounded-full mix-blend-screen" />
+                    )}
+                    <div className={`text-xl font-bold mb-0.5 ${sel ? 'text-[#00f0ff]' : 'text-white'}`}>
+                      {m.display}
+                    </div>
+                    <div className="text-[10px] text-gray-400 italic mb-1 leading-tight">
+                      {m.system}
+                    </div>
+                    <div className="text-[10px] font-mono text-gray-500 mb-2">
+                      {m.range}
+                    </div>
+                    <span
+                      className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                      style={{
+                        color: m.badgeColor,
+                        backgroundColor: m.badgeColor + '22',
+                        border: `1px solid ${m.badgeColor}55`
+                      }}
+                    >
+                      {m.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ))}
       </div>
 
@@ -510,7 +622,9 @@ export default function MolecularFitting() {
           <div className="bg-black/40 border border-[#00f0ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm col-span-1">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#00f0ff] to-transparent opacity-50" />
             <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-widest flex items-center justify-center gap-2">
-              🌡️ T_ROTATIONAL
+              {TROT_ONLY.has(selectedMolecule) 
+                ? '🌡️ T_GAS' 
+                : '🌡️ T_ROTATIONAL'}
             </h3>
             <div className="text-4xl font-mono font-bold text-[#00f0ff] mb-2">
               {fitResult.Trot.toFixed(0)} <span className="text-lg text-gray-400">K</span>
@@ -519,11 +633,14 @@ export default function MolecularFitting() {
               ± 15 K
             </div>
             <div className="text-xs text-[#00f0ff]/80 bg-[#00f0ff]/10 py-1.5 px-3 rounded inline-block">
-              ≈ Gas Temperature
+              {TROT_ONLY.has(selectedMolecule)
+                ? '= Tgas (direct measurement)'
+                : '≈ Gas Temperature'}
             </div>
           </div>
 
-          {/* VIBRATIONAL */}
+          {/* VIBRATIONAL — hidden for OH and NH */}
+          {!TROT_ONLY.has(selectedMolecule) && (
           <div className="bg-black/40 border border-[#b400ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm col-span-1">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#b400ff] to-transparent opacity-50" />
             <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-widest flex items-center justify-center gap-2">
@@ -537,8 +654,10 @@ export default function MolecularFitting() {
               RMSE: {fitResult.rmse.toFixed(4)}
             </div>
           </div>
-          
-          {/* EQUILIBRIUM */}
+          )}
+
+          {/* EQUILIBRIUM — hidden for OH and NH */}
+          {!TROT_ONLY.has(selectedMolecule) && (
           <div className="bg-black/40 border border-white/10 p-6 rounded-lg relative overflow-hidden backdrop-blur-sm col-span-1">
             <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-widest">
               PLASMA STATUS
@@ -547,11 +666,10 @@ export default function MolecularFitting() {
               <span className="text-gray-300">Tvib/Trot Ratio:</span>
               <span className="text-2xl font-mono text-white">{fitResult.ratio.toFixed(2)}</span>
             </div>
-            
             {fitResult.ratio < 1.3 ? (
               <div className="text-green-400 text-sm">
                 <span className="font-bold">🟢 THERMAL EQUILIBRIUM</span><br/>
-                <span className="text-green-500/70 text-xs">Vibrational & translational modes balanced.</span>
+                <span className="text-green-500/70 text-xs">Vibrational and translational modes balanced.</span>
               </div>
             ) : fitResult.ratio < 3 ? (
               <div className="text-yellow-400 text-sm">
@@ -561,10 +679,11 @@ export default function MolecularFitting() {
             ) : (
               <div className="text-red-400 text-sm">
                 <span className="font-bold">🔴 STRONG NON-EQUILIBRIUM</span><br/>
-                <span className="text-red-500/70 text-xs">Vibrational energy &gt;&gt; translational (DBD, Cold Plasma)</span>
+                <span className="text-red-500/70 text-xs">Vibrational energy &gt;&gt; translational.</span>
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -599,6 +718,52 @@ export default function MolecularFitting() {
                 CN violet system (B²Σ⁺→X²Σ⁺) indicates nitrogen-carbon chemistry (350-390nm).
                 Present when carbon and nitrogen coexist in plasma. Important for plasma nitrogen 
                 fixation and carbon nitride deposition.
+              </p>
+            )}
+            {selectedMolecule === 'OH' && (
+              <p>
+                OH A²Σ⁺→X²Π (306–320 nm) is the most important 
+                atmospheric plasma diagnostic. The rotational 
+                temperature thermalizes extremely rapidly with 
+                the surrounding gas — in atmospheric plasma 
+                Trot(OH) = Tgas to within measurement uncertainty.
+                Essential for DBD, APPJ, and biomedical plasma.
+                The doublet spin structure creates two F1/F2 
+                sub-components per rotational line.
+              </p>
+            )}
+            {selectedMolecule === 'N2+' && (
+              <p>
+                N₂⁺ First Negative System (B²Σᵤ⁺→X²Σg⁺, 388–428 nm)
+                is emission from ionized molecular nitrogen.
+                As a Σ→Σ transition, no Q-branch exists.
+                The (0-0) band at 391.4 nm is strongest.
+                Presence indicates high reduced electric field 
+                E/N exceeding 100 Td. Nuclear spin weights are 
+                inverted relative to neutral N₂ due to the 
+                ungerade symmetry of the upper state.
+              </p>
+            )}
+            {selectedMolecule === 'NO' && (
+              <p>
+                NO Beta System (A²Σ⁺→X²Π, 226–270 nm) appears 
+                in air plasma and is a key NOx production indicator.
+                The UV range requires quartz optics and a 
+                UV-sensitive detector. Multiple overlapping 
+                vibrational progressions from v′=0 and v′=1 
+                upper levels create a rich band structure.
+                Q-branch is suppressed for cleaner fitting.
+              </p>
+            )}
+            {selectedMolecule === 'NH' && (
+              <p>
+                NH A³Π→X³Σ⁻ (328–342 nm) appears in N₂-H₂ plasma,
+                plasma nitriding, and ammonia decomposition plasma.
+                The triplet A³Π state creates three Ω sub-components
+                (Ω=0,1,2) per band head, simulated with offset 
+                sub-head weights. Trot directly measures heavy 
+                particle temperature. The (0-0) band at 335.5 nm 
+                is the primary diagnostic feature.
               </p>
             )}
             <p className="mt-2 text-[#00f0ff] font-mono">

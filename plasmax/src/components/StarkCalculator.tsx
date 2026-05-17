@@ -1,4 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, 
+  ReferenceLine, Line, ResponsiveContainer 
+} from 'recharts';
+import { ChevronDown, ChevronUp, Upload } from 'lucide-react';
 import {
   STARK_DATABASE,
   StarkEntry,
@@ -54,6 +59,46 @@ export default function StarkCalculator() {
 
   const [savedMeasurements, setSavedMeasurements] = useState<SavedMeasurement[]>([]);
 
+  // ── Upload Stark Fitting state ──────────────
+  const [uploadIsOpen, setUploadIsOpen] = 
+    useState(false);
+  const [uploadSpectrum, setUploadSpectrum] = 
+    useState<{wl: number; int: number}[] | null>(null);
+  const [uploadFileName, setUploadFileName] = 
+    useState<string>('');
+  const [uploadDetectedLine, setUploadDetectedLine] = 
+    useState<StarkEntry | null>(null);
+  const [uploadFitResult, setUploadFitResult] = 
+    useState<{
+      center_nm: number;
+      fwhm_nm: number;
+      amplitude: number;
+      fitted: {wl: number; int: number}[];
+    } | null>(null);
+  const [uploadInstFWHM, setUploadInstFWHM] = 
+    useState<string>('0.05');
+  const [uploadTgas, setUploadTgas] = 
+    useState<string>('500');
+  const [uploadWindowHalf, setUploadWindowHalf] = 
+    useState<string>('3.0');
+  const [uploadIsFitting, setUploadIsFitting] = 
+    useState(false);
+  const [uploadNeResult, setUploadNeResult] = 
+    useState<{
+      ne_cm3: number;
+      ne_min: number;
+      ne_max: number;
+      reliable: boolean;
+      warning: string | null;
+      w_doppler: number;
+      w_stark: number;
+    } | null>(null);
+  const uploadFileRef = useRef<HTMLInputElement>(null);
+  const [uploadWindowedData, setUploadWindowedData] =
+    useState<{wl: number; raw: number; fit: number | null}[]>([]);
+  const [uploadFitQuality, setUploadFitQuality] =
+    useState<number>(0);
+
   const numTotalFWHM = parseFloat(debouncedInputs.total);
   const numInstFWHM = parseFloat(debouncedInputs.inst);
   const numTGas = parseFloat(debouncedInputs.tGas);
@@ -95,6 +140,303 @@ export default function StarkCalculator() {
 
   const removeMeasurement = (id: string) => {
     setSavedMeasurements(savedMeasurements.filter(m => m.id !== id));
+  };
+
+  // ── Parse uploaded spectrum CSV ─────────────
+  const parseUploadedCSV = (
+    text: string
+  ): {wl: number; int: number}[] => {
+    const lines = text.split('\n');
+    const points: {wl: number; int: number}[] = [];
+    for (const line of lines) {
+      if (!line.trim() || 
+          line.startsWith('#') || 
+          line.startsWith('//')) continue;
+      const parts = line
+        .replace(/,/g, '\t')
+        .replace(/;/g, '\t')
+        .split('\t')
+        .map(s => s.trim())
+        .filter(s => s !== '');
+      if (parts.length >= 2) {
+        const wl  = parseFloat(parts[0]);
+        const int = parseFloat(parts[1]);
+        if (!isNaN(wl) && !isNaN(int)) {
+          points.push({ wl, int });
+        }
+      }
+    }
+    return points.sort((a, b) => a.wl - b.wl);
+  };
+
+  // ── Auto-detect Stark line from spectrum ────
+  // Checks if spectrum contains Hα, Hβ, Hγ, Hδ
+  // by finding the peak nearest to known wavelengths
+  const detectStarkLine = (
+    pts: {wl: number; int: number}[]
+  ): StarkEntry | null => {
+    if (pts.length === 0) return null;
+    const wlMin = pts[0].wl;
+    const wlMax = pts[pts.length - 1].wl;
+    // Priority order: Hα, Hβ, Hγ, Hδ
+    const candidates = STARK_DATABASE.filter(e =>
+      e.wavelength_nm >= wlMin - 5 &&
+      e.wavelength_nm <= wlMax + 5
+    );
+    if (candidates.length === 0) return null;
+    // Return the one whose wavelength is closest
+    // to the spectrum's intensity peak
+    const maxInt = Math.max(...pts.map(p => p.int));
+    const peakPt = pts.find(p => p.int === maxInt);
+    if (!peakPt) return candidates[0];
+    return candidates.reduce((best, c) =>
+      Math.abs(c.wavelength_nm - peakPt.wl) <
+      Math.abs(best.wavelength_nm - peakPt.wl)
+        ? c : best
+    );
+  };
+
+  // ── Handle file upload ───────────────────────
+  const handleUploadFile = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const pts  = parseUploadedCSV(text);
+      if (pts.length < 10) return;
+      setUploadSpectrum(pts);
+      setUploadFitResult(null);
+      setUploadNeResult(null);
+      const detected = detectStarkLine(pts);
+      setUploadDetectedLine(detected);
+    };
+    reader.readAsText(file);
+  };
+
+  // ── Pseudo-Voigt fit — robust version for 
+  //    high-resolution spectra (HR 1000 etc.) ──
+  const fitVoigtToLine = async () => {
+    if (!uploadSpectrum || !uploadDetectedLine) return;
+    setUploadIsFitting(true);
+    setUploadFitResult(null);
+    setUploadNeResult(null);
+    setUploadFitQuality(0);
+
+    const lineWl  = uploadDetectedLine.wavelength_nm;
+    const halfWin = parseFloat(uploadWindowHalf) || 3.0;
+
+    // STEP 1: Extract window once. This same data
+    // will be used for BOTH fitting and the chart.
+    const windowed = uploadSpectrum.filter(p =>
+      p.wl >= lineWl - halfWin &&
+      p.wl <= lineWl + halfWin
+    );
+    if (windowed.length < 10) {
+      setUploadIsFitting(false);
+      return;
+    }
+
+    // STEP 2: Estimate baseline as average of 
+    // the edge points (first and last 10%)
+    const edgeCount = Math.max(3, Math.floor(windowed.length * 0.1));
+    const leftEdge = windowed.slice(0, edgeCount);
+    const rightEdge = windowed.slice(-edgeCount);
+    const baseline = 
+      ([...leftEdge, ...rightEdge]
+        .reduce((s, p) => s + p.int, 0)) / 
+      (leftEdge.length + rightEdge.length);
+
+    // STEP 3: Subtract baseline, then normalize to 0-1
+    const bgSubtracted = windowed.map(p => ({
+      wl:  p.wl,
+      int: Math.max(0, p.int - baseline)
+    }));
+    const maxI = Math.max(...bgSubtracted.map(p => p.int));
+    if (maxI <= 0) {
+      setUploadIsFitting(false);
+      return;
+    }
+    const norm = bgSubtracted.map(p => ({
+      wl:  p.wl,
+      int: p.int / maxI
+    }));
+
+    // STEP 4: Estimate initial peak position by 
+    // finding the data point with highest intensity
+    let peakIdx = 0;
+    let peakVal = -Infinity;
+    for (let i = 0; i < norm.length; i++) {
+      if (norm[i].int > peakVal) {
+        peakVal = norm[i].int;
+        peakIdx = i;
+      }
+    }
+    let initCenter = norm[peakIdx].wl;
+
+    // Refine center using quadratic interpolation
+    // around the peak (3-point parabolic fit)
+    if (peakIdx > 0 && peakIdx < norm.length - 1) {
+      const y1 = norm[peakIdx - 1].int;
+      const y2 = norm[peakIdx].int;
+      const y3 = norm[peakIdx + 1].int;
+      const x1 = norm[peakIdx - 1].wl;
+      const x3 = norm[peakIdx + 1].wl;
+      const denom = (y1 - 2 * y2 + y3);
+      if (Math.abs(denom) > 1e-10) {
+        const offset = 0.5 * (y1 - y3) / denom;
+        const dx = (x3 - x1) / 2;
+        initCenter = norm[peakIdx].wl + offset * dx;
+      }
+    }
+
+    // STEP 5: Estimate initial FWHM from the data
+    // by finding the half-maximum crossings
+    const halfMax = 0.5;
+    let leftHM = norm[0].wl;
+    let rightHM = norm[norm.length - 1].wl;
+    for (let i = peakIdx; i > 0; i--) {
+      if (norm[i].int < halfMax) {
+        // Linear interpolation between i and i+1
+        const x1 = norm[i].wl, y1 = norm[i].int;
+        const x2 = norm[i + 1].wl, y2 = norm[i + 1].int;
+        leftHM = x1 + (halfMax - y1) * (x2 - x1) / (y2 - y1 || 1);
+        break;
+      }
+    }
+    for (let i = peakIdx; i < norm.length - 1; i++) {
+      if (norm[i].int < halfMax) {
+        const x1 = norm[i - 1].wl, y1 = norm[i - 1].int;
+        const x2 = norm[i].wl, y2 = norm[i].int;
+        rightHM = x1 + (halfMax - y1) * (x2 - x1) / (y2 - y1 || 1);
+        break;
+      }
+    }
+    let initFWHM = Math.max(0.01, rightHM - leftHM);
+    // Sanity bounds: clamp to reasonable range for HR data
+    if (initFWHM < 0.02) initFWHM = 0.05;
+    if (initFWHM > halfWin) initFWHM = halfWin * 0.5;
+
+    // STEP 6: Pseudo-Voigt profile
+    const voigt = (
+      x: number, center: number, fwhm: number, amp: number
+    ): number => {
+      const sigma = fwhm / (2 * Math.sqrt(2 * Math.log(2)));
+      const gamma = fwhm / 2;
+      const dx = x - center;
+      const g = Math.exp(-(dx * dx) / (2 * sigma * sigma));
+      const l = 1 / (1 + (dx * dx) / (gamma * gamma));
+      return amp * (0.7 * g + 0.3 * l);
+    };
+
+    const getLoss = (
+      ctr: number, fw: number, amp: number
+    ): number => {
+      let loss = 0;
+      for (const p of norm) {
+        const diff = p.int - voigt(p.wl, ctr, fw, amp);
+        loss += diff * diff;
+      }
+      return loss;
+    };
+
+    // STEP 7: Multi-scale coordinate descent
+    // Coarse → medium → fine — total 120 iterations
+    let ctr = initCenter;
+    let fw  = initFWHM;
+    let amp = 1.0;
+
+    const scales = [
+      { iters: 30, stepCtr: 0.10, stepFw: 0.08, stepAmp: 0.10 },
+      { iters: 50, stepCtr: 0.02, stepFw: 0.02, stepAmp: 0.04 },
+      { iters: 40, stepCtr: 0.005, stepFw: 0.005, stepAmp: 0.01 }
+    ];
+
+    for (const scale of scales) {
+      for (let i = 0; i < scale.iters; i++) {
+        const decay = Math.exp(-i / (scale.iters * 0.6));
+        const sCtr = scale.stepCtr * decay;
+        const sFw  = scale.stepFw  * decay;
+        const sAmp = scale.stepAmp * decay;
+        const base = getLoss(ctr, fw, amp);
+
+        if (getLoss(ctr + sCtr, fw, amp) < base) ctr += sCtr;
+        else if (getLoss(ctr - sCtr, fw, amp) < base) ctr -= sCtr;
+
+        if (fw + sFw < halfWin * 2 && 
+            getLoss(ctr, fw + sFw, amp) < base) fw += sFw;
+        else if (fw - sFw > 0.005 && 
+                 getLoss(ctr, fw - sFw, amp) < base) fw -= sFw;
+
+        if (getLoss(ctr, fw, amp + sAmp) < base) amp += sAmp;
+        else if (amp - sAmp > 0.05 && 
+                 getLoss(ctr, fw, amp - sAmp) < base) amp -= sAmp;
+
+        if (i % 10 === 0) {
+          await new Promise(r => setTimeout(r, 3));
+        }
+      }
+    }
+
+    // STEP 8: Compute R² to assess fit quality
+    const meanY = norm.reduce((s, p) => s + p.int, 0) / norm.length;
+    let ssRes = 0;
+    let ssTot = 0;
+    for (const p of norm) {
+      const pred = voigt(p.wl, ctr, fw, amp);
+      ssRes += (p.int - pred) ** 2;
+      ssTot += (p.int - meanY) ** 2;
+    }
+    const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+
+    // STEP 9: Build fitted curve and chart data
+    // The chart data uses the SAME windowed array
+    const fittedCurve = norm.map(p => ({
+      wl:  p.wl,
+      int: voigt(p.wl, ctr, fw, amp)
+    }));
+    const chartData = norm.map((p, i) => ({
+      wl:  p.wl,
+      raw: p.int,
+      fit: fittedCurve[i].int
+    }));
+
+    setUploadWindowedData(chartData);
+    setUploadFitQuality(r2);
+    setUploadFitResult({
+      center_nm: ctr,
+      fwhm_nm:   fw,
+      amplitude: amp,
+      fitted: fittedCurve
+    });
+
+    // STEP 10: Calculate nₑ from fitted FWHM
+    const instFWHM = parseFloat(uploadInstFWHM) || 0;
+    const tGas     = parseFloat(uploadTgas) || 300;
+    const entry    = uploadDetectedLine;
+    const w_doppler = calculateDopplerFWHM(
+      entry.wavelength_nm, tGas, entry.atomic_mass_amu
+    );
+    const w_stark_sq = fw * fw - 
+                       instFWHM * instFWHM - 
+                       w_doppler * w_doppler;
+
+    if (w_stark_sq <= 0 || r2 < 0.5) {
+      setUploadIsFitting(false);
+      setUploadNeResult(null);
+      return;
+    }
+    const w_stark  = Math.sqrt(w_stark_sq);
+    const neResult = calculateNe(entry, w_stark);
+    setUploadNeResult({
+      ...neResult,
+      w_doppler,
+      w_stark
+    });
+    setUploadIsFitting(false);
   };
 
   return (
@@ -397,6 +739,312 @@ export default function StarkCalculator() {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 9: Spectrum Upload — Voigt Fitting */}
+      <div className="mt-8 bg-white/5 border border-white/10 rounded-lg backdrop-blur-sm shadow-xl overflow-hidden">
+        
+        {/* Collapsible header */}
+        <button
+          onClick={() => setUploadIsOpen(!uploadIsOpen)}
+          className="w-full flex items-center justify-between p-6 text-left hover:bg-white/5 transition-colors"
+        >
+          <div>
+            <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-3">
+              <span className="text-[#00f0ff]">📂</span>
+              Spectrum Upload — Voigt Profile Fitting
+            </h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Upload Hα/Hβ spectrum → auto-fit Voigt → extract nₑ
+            </p>
+          </div>
+          {uploadIsOpen 
+            ? <ChevronUp className="text-gray-400" size={20} />
+            : <ChevronDown className="text-gray-400" size={20} />
+          }
+        </button>
+
+        {uploadIsOpen && (
+          <div className="px-6 pb-6 space-y-6 border-t border-white/10">
+
+            {/* Row 1: File upload + parameters */}
+            <div className="flex flex-col md:flex-row gap-6 pt-4">
+              
+              {/* File upload button */}
+              <div className="flex-1">
+                <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2">
+                  Upload Spectrum (CSV / TXT)
+                </label>
+                <label className="flex items-center gap-3 bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-3 rounded cursor-pointer transition-all">
+                  <Upload size={16} className="text-[#00f0ff]" />
+                  <span className="text-sm text-white font-medium">
+                    {uploadFileName || 'Choose file...'}
+                  </span>
+                  <input
+                    ref={uploadFileRef}
+                    type="file"
+                    accept=".csv,.txt,.dat"
+                    className="hidden"
+                    onChange={handleUploadFile}
+                  />
+                </label>
+                {uploadDetectedLine && (
+                  <div className="mt-2 text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 px-3 py-2 rounded">
+                    ✓ Detected: {uploadDetectedLine.line_name} 
+                    ({uploadDetectedLine.wavelength_nm} nm)
+                  </div>
+                )}
+                {uploadSpectrum && !uploadDetectedLine && (
+                  <div className="mt-2 text-xs font-mono text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 rounded">
+                    ⚠ No known Stark line detected in range.
+                    Check wavelength axis units (must be nm).
+                  </div>
+                )}
+              </div>
+
+              {/* Parameters */}
+              <div className="flex gap-4 flex-wrap">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2">
+                    Fit Window ± (nm)
+                  </label>
+                  <input
+                    type="number" step="0.5" min="0.5"
+                    value={uploadWindowHalf}
+                    onChange={e => setUploadWindowHalf(e.target.value)}
+                    className="w-24 bg-black/60 border border-white/20 text-white rounded px-3 py-2 font-mono text-center outline-none focus:border-[#00f0ff] transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2">
+                    Inst. FWHM (nm)
+                  </label>
+                  <input
+                    type="number" step="0.001" min="0"
+                    value={uploadInstFWHM}
+                    onChange={e => setUploadInstFWHM(e.target.value)}
+                    className="w-24 bg-black/60 border border-white/20 text-white rounded px-3 py-2 font-mono text-center outline-none focus:border-[#00f0ff] transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2">
+                    Gas Temp (K)
+                  </label>
+                  <input
+                    type="number" step="50" min="100"
+                    value={uploadTgas}
+                    onChange={e => setUploadTgas(e.target.value)}
+                    className="w-24 bg-black/60 border border-white/20 text-white rounded px-3 py-2 font-mono text-center outline-none focus:border-[#00f0ff] transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Fit button */}
+            <button
+              onClick={fitVoigtToLine}
+              disabled={!uploadSpectrum || 
+                        !uploadDetectedLine || 
+                        uploadIsFitting}
+              className={`px-6 py-2 rounded font-bold tracking-widest uppercase transition-all flex items-center gap-2 text-sm ${
+                !uploadSpectrum || !uploadDetectedLine
+                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                  : uploadIsFitting
+                    ? 'bg-[#00f0ff]/50 text-white cursor-wait'
+                    : 'bg-[#00f0ff] text-black hover:bg-white hover:shadow-[0_0_15px_rgba(0,240,255,0.6)]'
+              }`}
+            >
+              {uploadIsFitting ? '⏳ Fitting...' : '⚡ Fit Voigt Profile'}
+            </button>
+
+            {/* Plot: raw spectrum + fitted Voigt */}
+            {uploadFitResult && uploadSpectrum && uploadDetectedLine && (
+              <div className="bg-[#0a0a0f] border border-white/10 rounded-lg p-4 h-[320px]">
+                <div className="text-xs font-mono mb-2 flex flex-wrap gap-3">
+                  <span className="text-gray-500">
+                    {uploadDetectedLine.line_name} — Voigt fit
+                  </span>
+                  <span className="text-[#00f0ff]">
+                    FWHM = {uploadFitResult.fwhm_nm.toFixed(4)} nm
+                  </span>
+                  <span className="text-gray-400">
+                    Center = {uploadFitResult.center_nm.toFixed(4)} nm
+                  </span>
+                  <span className={
+                    uploadFitQuality > 0.9 ? 'text-green-400' :
+                    uploadFitQuality > 0.7 ? 'text-yellow-400' :
+                    'text-red-400'
+                  }>
+                    R² = {uploadFitQuality.toFixed(3)}
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height="85%">
+                  <LineChart
+                    margin={{ top: 10, right: 20, left: 10, bottom: 20 }}
+                    data={uploadWindowedData}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis
+                      dataKey="wl"
+                      stroke="#666"
+                      tick={{ fill: '#888', fontSize: 10, fontFamily: 'monospace' }}
+                      type="number"
+                      domain={['dataMin', 'dataMax']}
+                      label={{ value: 'Wavelength (nm)', position: 'bottom', fill: '#aaa', fontSize: 11 }}
+                    />
+                    <YAxis
+                      stroke="#666"
+                      tick={{ fill: '#888', fontSize: 10, fontFamily: 'monospace' }}
+                      label={{ value: 'Norm. Intensity', angle: -90, position: 'left', fill: '#aaa', fontSize: 11 }}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0a0a0f', borderColor: '#333', borderRadius: '8px' }}
+                      itemStyle={{ fontFamily: 'monospace', fontSize: '11px' }}
+                      formatter={(v: any) => typeof v === 'number' ? v.toFixed(4) : v}
+                    />
+                    <Legend verticalAlign="top" height={30} wrapperStyle={{ opacity: 0.8 }} />
+                    <ReferenceLine
+                      x={uploadFitResult.center_nm}
+                      stroke="#ffffff22"
+                      strokeDasharray="4 4"
+                      label={{ value: 'center', fill: '#666', fontSize: 9 }}
+                    />
+                    <ReferenceLine
+                      x={uploadFitResult.center_nm - uploadFitResult.fwhm_nm / 2}
+                      stroke="#00f0ff33"
+                      strokeDasharray="3 3"
+                    />
+                    <ReferenceLine
+                      x={uploadFitResult.center_nm + uploadFitResult.fwhm_nm / 2}
+                      stroke="#00f0ff33"
+                      strokeDasharray="3 3"
+                      label={{ value: `FWHM=${uploadFitResult.fwhm_nm.toFixed(3)}nm`, fill: '#00f0ff', fontSize: 9 }}
+                    />
+                    <Line
+                      type="monotone" dataKey="raw"
+                      stroke="#666" strokeWidth={1.5} dot={false}
+                      name="Measured" isAnimationActive={false}
+                    />
+                    <Line
+                      type="monotone" dataKey="fit"
+                      stroke="#00f0ff" strokeWidth={2} dot={false}
+                      name="Voigt Fit" isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Results breakdown */}
+            {uploadNeResult && uploadFitResult && uploadDetectedLine && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {/* Width breakdown */}
+                <div className="bg-black/40 border border-white/10 rounded-lg p-5 font-mono text-sm space-y-3">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+                    Width Decomposition
+                  </h4>
+                  <div className="flex justify-between items-center bg-white/5 px-3 py-2 rounded">
+                    <span className="text-gray-400">W_total (fit):</span>
+                    <span className="text-white font-bold">
+                      {uploadFitResult.fwhm_nm.toFixed(5)} nm
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center bg-white/5 px-3 py-2 rounded">
+                    <span className="text-gray-400">W_instrumental:</span>
+                    <span className="text-gray-300">
+                      {(parseFloat(uploadInstFWHM)||0).toFixed(5)} nm
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center bg-white/5 px-3 py-2 rounded">
+                    <span className="text-gray-400">W_Doppler:</span>
+                    <span className="text-yellow-400">
+                      {uploadNeResult.w_doppler.toFixed(5)} nm
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#00f0ff]/10 border border-[#00f0ff]/20 px-3 py-2 rounded">
+                    <span className="text-[#00f0ff]">W_Stark:</span>
+                    <span className="text-[#00f0ff] font-bold">
+                      {uploadNeResult.w_stark.toFixed(5)} nm
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-600 pt-2">
+                    W_Stark² = W_total² − W_inst² − W_Doppler²
+                  </div>
+                </div>
+
+                {/* nₑ result */}
+                <div className={`border-2 rounded-lg p-5 text-center relative overflow-hidden ${
+                  uploadNeResult.reliable
+                    ? 'border-green-500/40 bg-green-500/5'
+                    : 'border-red-500/40 bg-red-500/5'
+                }`}>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+                    Electron Density
+                  </h4>
+                  <div
+                    className="text-4xl font-mono font-bold text-white mb-1"
+                    style={{
+                      textShadow: uploadNeResult.reliable
+                        ? '0 0 20px rgba(34,197,94,0.5)'
+                        : '0 0 20px rgba(239,68,68,0.5)'
+                    }}
+                  >
+                    {formatNe(uploadNeResult.ne_cm3)}
+                  </div>
+                  <div className="text-[#00f0ff] font-mono font-bold mb-3">
+                    cm⁻³
+                  </div>
+                  <div className="text-xs text-gray-500 font-mono mb-3">
+                    [{formatNe(uploadNeResult.ne_min)} – {formatNe(uploadNeResult.ne_max)}]
+                  </div>
+                  <div className="text-xs font-mono text-gray-500 mb-1">
+                    via {uploadDetectedLine.line_name} Stark · {uploadDetectedLine.scaling} scaling
+                  </div>
+                  {!uploadNeResult.reliable && (
+                    <div className="mt-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 p-2 rounded">
+                      ⚠ {uploadNeResult.warning}
+                    </div>
+                  )}
+                  {uploadNeResult.reliable && (
+                    <div className="mt-3 text-xs text-green-400 bg-green-500/10 border border-green-500/20 p-2 rounded">
+                      ✓ Within reliable range for {uploadDetectedLine.line_name}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {/* Error: Stark width unphysical OR fit failed */}
+            {uploadFitResult && !uploadNeResult && (
+              <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
+                {uploadFitQuality < 0.5 ? (
+                  <>
+                    ⚠ Voigt fit quality is poor (R² = {uploadFitQuality.toFixed(3)})<br/>
+                    <span className="text-xs text-red-300 mt-1 block">
+                      The fitted profile does not match the data well.
+                      Try: (1) narrower fit window, (2) cleaner spectrum 
+                      with isolated line, or (3) check that the spectrum 
+                      contains the detected line.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    ⚠ Stark width is unphysical 
+                    (W_total² − W_inst² − W_Doppler² ≤ 0)<br/>
+                    <span className="text-xs text-red-300 mt-1 block">
+                      The line may be dominated by Doppler or 
+                      instrumental broadening. Try reducing instrumental 
+                      FWHM or check that gas temperature is correct.
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
           </div>
         )}
       </div>
