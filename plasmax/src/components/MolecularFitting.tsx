@@ -1,15 +1,11 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  N2_SECOND_POSITIVE_BANDS,
-  N2_SPECTROSCOPIC_CONSTANTS,
-  C2_SWAN_BANDS,
-  C2_SPECTROSCOPIC_CONSTANTS,
-  CN_VIOLET_BANDS,
-  CN_SPECTROSCOPIC_CONSTANTS,
-  type N2BandHead,
-  type C2BandHead,
-  type CNBandHead
-} from '../data/molecular_constants';
+import React, { useState, useCallback, useEffect } from 'react';
+import { 
+  generateSyntheticManifold,
+  N2_SPS_MODEL,
+  C2_SWAN_MODEL, 
+  CN_VIOLET_MODEL,
+  type MolecularModel
+} from '../utils/molSpectro';
 import {
   LineChart,
   Line,
@@ -24,9 +20,19 @@ import { Download, Upload, Activity, RefreshCw } from 'lucide-react';
 
 type Molecule = 'N2' | 'C2' | 'CN';
 
+// NEW
+function getModel(molecule: Molecule): MolecularModel {
+  switch(molecule) {
+    case 'N2': return N2_SPS_MODEL;
+    case 'C2': return C2_SWAN_MODEL;
+    case 'CN': return CN_VIOLET_MODEL;
+  }
+}
+
 interface FitResult {
   Trot: number;
   Tvib: number;
+  shift: number; // NEW
   rmse: number;
   ratio: number;
 }
@@ -36,85 +42,9 @@ interface SpectrumPoint {
   intensity: number;
 }
 
-const getWavelengthRange = (molecule: Molecule): [number, number] => {
-  switch (molecule) {
-    case 'N2': return [296, 400];
-    case 'C2': return [470, 570];
-    case 'CN': return [350, 395];
-  }
-};
-
-const getBands = (molecule: Molecule) => {
-  switch (molecule) {
-    case 'N2': return N2_SECOND_POSITIVE_BANDS;
-    case 'C2': return C2_SWAN_BANDS;
-    case 'CN': return CN_VIOLET_BANDS;
-  }
-};
-
-const getConstants = (molecule: Molecule) => {
-  switch (molecule) {
-    case 'N2': return N2_SPECTROSCOPIC_CONSTANTS;
-    case 'C2': return C2_SPECTROSCOPIC_CONSTANTS;
-    case 'CN': return CN_SPECTROSCOPIC_CONSTANTS;
-  }
-};
-
-const generateWavelengthAxis = (range: [number, number], points: number = 500): number[] => {
-  const step = (range[1] - range[0]) / (points - 1);
-  return Array.from({ length: points }, (_, i) => range[0] + i * step);
-};
-
-const generateSyntheticSpectrum = (
-  molecule: Molecule,
-  Trot: number,
-  Tvib: number,
-  fwhm: number,
-  wavelengths: number[]
-): number[] => {
-  const kB = 0.695039;
-  const spectrum = new Array(wavelengths.length).fill(0);
-  const bands = getBands(molecule);
-  const constants = getConstants(molecule);
-  
-  // Rotational structure proxy: FWHM broadens with Trot + Band Intensity modulation
-  const Q_rot = kB * Trot / constants.Be_upper;
-  const effective_fwhm = fwhm + (Trot * 0.0002);
-  const sigma = effective_fwhm / (2 * Math.sqrt(2 * Math.log(2)));
-  
-  bands.forEach(band => {
-    const E_vib = band.v_upper * constants.we_upper;
-    const pop_vib = Math.exp(-E_vib / (kB * Tvib));
-    const band_intensity = (band.FCF * pop_vib) / Q_rot;
-    
-    wavelengths.forEach((wl, i) => {
-      const delta = wl - band.wavelength_nm;
-      // Rotational bands shade to one side, but using Gaussian as requested
-      // We only apply this if delta is somewhat close to avoid long processing
-      if (Math.abs(delta) < 15) {
-        spectrum[i] += band_intensity * 
-          Math.exp(-(delta * delta) / (2 * sigma * sigma));
-      }
-    });
-  });
-  
-  const maxVal = Math.max(...spectrum);
-  return maxVal > 0 
-    ? spectrum.map(v => v / maxVal) 
-    : spectrum;
-};
-
-const calculateRMSE = (exp: number[], syn: number[]): number => {
-  let sumsq = 0;
-  for(let i = 0; i < exp.length; i++) {
-    sumsq += Math.pow(exp[i] - syn[i], 2);
-  }
-  return Math.sqrt(sumsq / exp.length);
-};
-
 const parseCSV = (text: string): SpectrumPoint[] => {
   const lines = text.split('\n');
-  const points: SpectrumPoint[] = [];
+  let points: SpectrumPoint[] = [];
   for (const line of lines) {
     if (line.trim() === '' || line.startsWith('#') || line.startsWith('//')) continue;
     const parts = line.replace(/,/g, '\t').replace(/;/g, '\t').split('\t').map(s => s.trim()).filter(s => s !== '');
@@ -126,41 +56,81 @@ const parseCSV = (text: string): SpectrumPoint[] => {
       }
     }
   }
-  return points.sort((a,b) => a.wavelength - b.wavelength);
-};
-
-const normalizeArray = (arr: number[]): number[] => {
-  const maxVal = Math.max(...arr);
-  return maxVal > 0 ? arr.map(v => v / maxVal) : arr;
+  
+  points.sort((a,b) => a.wavelength - b.wavelength);
+  
+  if (points.length > 0) {
+    const minInt = Math.min(...points.map(p => p.intensity));
+    const maxInt = Math.max(...points.map(p => p.intensity));
+    const range = maxInt - minInt;
+    
+    if (range > 0) {
+      points = points.map(p => ({
+        wavelength: p.wavelength,
+        intensity: (p.intensity - minInt) / range
+      }));
+    } else {
+      points = points.map(p => ({
+        wavelength: p.wavelength,
+        intensity: 0
+      }));
+    }
+  }
+  
+  return points;
 };
 
 export default function MolecularFitting() {
   const [selectedMolecule, setSelectedMolecule] = useState<Molecule>('N2');
+  
   const [experimentalSpectrum, setExperimentalSpectrum] = useState<SpectrumPoint[] | null>(null);
   const [syntheticSpectrum, setSyntheticSpectrum] = useState<SpectrumPoint[] | null>(null);
   const [fitResult, setFitResult] = useState<FitResult | null>(null);
   const [isFitting, setIsFitting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [fwhmNm, setFwhmNm] = useState(0.5);
+  const [fwhmNm, setFwhmNm] = useState(0.1);
   const [useDemo, setUseDemo] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [isPhysicsOpen, setIsPhysicsOpen] = useState(false);
 
+  // NEW: Update demo spectrum generation
   const generateDemoSpectrum = useCallback((molecule: Molecule): SpectrumPoint[] => {
-    let Trot = 500, Tvib = 4000;
-    if (molecule === 'C2') { Trot = 3000; Tvib = 6000; }
-    else if (molecule === 'CN') { Trot = 1500; Tvib = 5000; }
+    // FROM-GLOWLOGIC-ENGINE
+    const model = getModel(molecule);
+    const range = model.fit_range_nm;
     
-    const range = getWavelengthRange(molecule);
-    const wls = generateWavelengthAxis(range, 400); // reduced points for speed
-    const synth = generateSyntheticSpectrum(molecule, Trot, Tvib, fwhmNm, wls);
+    // Generate 1000 points in fit range
+    const n = 1000;
+    const targetAxis = Array.from({length: n}, 
+      (_, i) => range[0] + (range[1]-range[0]) * i/(n-1)
+    );
     
-    return wls.map((wl, i) => {
-      const noise = (Math.random() * 0.04 - 0.02);
-      let noisyIntensity = synth[i] + noise;
-      if (noisyIntensity < 0) noisyIntensity = 0;
-      return { wavelength: wl, intensity: noisyIntensity };
+    const demoParams = {
+      N2: { trot: 500,  tvib: 4000 },
+      C2: { trot: 3000, tvib: 6000 },
+      CN: { trot: 1500, tvib: 5000 }
+    };
+    
+    const params = demoParams[molecule];
+    const synth = generateSyntheticManifold({
+      trot: params.trot,
+      tvib: params.tvib,
+      inst: 0.1,      // high resolution demo
+      shift: 0,
+      model,
+      targetAxis,
+      clipBounds: { low: range[0], high: range[1] }
     });
-  }, [fwhmNm]);
+    
+    // Add small noise ±2%
+    const maxVal = Math.max(...Array.from(synth));
+    return targetAxis.map((wl, i) => ({
+      wavelength: wl,
+      intensity: maxVal > 0 
+        ? synth[i]/maxVal + (Math.random()-0.5)*0.04 
+        : 0
+    }));
+  }, []);
 
   const handleDemoClick = () => {
     const demo = generateDemoSpectrum(selectedMolecule);
@@ -168,6 +138,7 @@ export default function MolecularFitting() {
     setSyntheticSpectrum(null);
     setFitResult(null);
     setUseDemo(true);
+    setFwhmNm(0.1);
     updateChart(demo, null);
   };
 
@@ -201,7 +172,7 @@ export default function MolecularFitting() {
     const data = exp.map((p, i) => ({
       wavelength: p.wavelength,
       expInt: p.intensity,
-      synInt: syn ? syn[i].intensity : null
+      synInt: syn && syn[i] ? syn[i].intensity : null
     }));
     setChartData(data);
   };
@@ -212,94 +183,153 @@ export default function MolecularFitting() {
     }
   }, [syntheticSpectrum, experimentalSpectrum]);
 
-  const runFineSearch = (
-    bestTrotCoarse: number,
-    bestTvibCoarse: number,
-    wavelengths: number[],
-    normExp: number[],
-    molecule: Molecule,
-    fwhm: number,
-    onComplete: (res: FitResult) => void
-  ) => {
-    let bestTrot = bestTrotCoarse;
-    let bestTvib = bestTvibCoarse;
-    let bestRMSE = Infinity;
-    
-    for (let Trot = bestTrotCoarse - 200; Trot <= bestTrotCoarse + 200; Trot += 20) {
-      if (Trot < 50) continue;
-      for (let Tvib = bestTvibCoarse - 500; Tvib <= bestTvibCoarse + 500; Tvib += 50) {
-        if (Tvib < 50) continue;
-        const synth = generateSyntheticSpectrum(molecule, Trot, Tvib, fwhm, wavelengths);
-        const rmse = calculateRMSE(normExp, synth);
-        if (rmse < bestRMSE) {
-          bestRMSE = rmse;
-          bestTrot = Trot;
-          bestTvib = Tvib;
-        }
-      }
-    }
-    onComplete({
-      Trot: bestTrot,
-      Tvib: bestTvib,
-      rmse: bestRMSE,
-      ratio: bestTvib / bestTrot
-    });
-  };
-
-  const runFit = useCallback(() => {
+  // NEW: Update fitting algorithm
+  const runFit = useCallback(async () => {
     if (!experimentalSpectrum) return;
     setIsFitting(true);
-    setProgress(0);
+  
+    // FROM-GLOWLOGIC-ENGINE
+    const model = getModel(selectedMolecule);
     
-    const wavelengths = experimentalSpectrum.map(p => p.wavelength);
-    const normExp = normalizeArray(experimentalSpectrum.map(p => p.intensity));
-    
-    let bestTrot = 500;
-    let bestTvib = 3000;
-    let bestRMSE = Infinity;
-    
-    const TrotValues = Array.from({length: 24}, (_, i) => 300 + i * 200);
-    let trotIndex = 0;
-    
-    const processChunk = () => {
-      if (trotIndex >= TrotValues.length) {
-        // Stage 2
-        runFineSearch(bestTrot, bestTvib, wavelengths, normExp, selectedMolecule, fwhmNm, (result) => {
-          setFitResult(result);
-          const synthStr = generateSyntheticSpectrum(
-            selectedMolecule, result.Trot, result.Tvib, fwhmNm, wavelengths
-          );
-          const synthMap = wavelengths.map((wl, i) => ({
-            wavelength: wl,
-            intensity: synthStr[i]
-          }));
-          setSyntheticSpectrum(synthMap);
-          setIsFitting(false);
-          setProgress(100);
-        });
-        return;
-      }
-      
-      const Trot = TrotValues[trotIndex];
-      for (let Tvib = 500; Tvib <= 20000; Tvib += 500) {
-        const synth = generateSyntheticSpectrum(selectedMolecule, Trot, Tvib, fwhmNm, wavelengths);
-        const rmse = calculateRMSE(normExp, synth);
-        if (rmse < bestRMSE) {
-          bestRMSE = rmse;
-          bestTrot = Trot;
-          bestTvib = Tvib;
-        }
-      }
-      
-      trotIndex++;
-      setProgress((trotIndex / TrotValues.length) * 80);
-      requestAnimationFrame(processChunk);
+    // Filter to fit range to avoid minimizing on irrelevant data
+    const fitData = experimentalSpectrum.filter(p => 
+      p.wavelength >= model.fit_range_nm[0] && 
+      p.wavelength <= model.fit_range_nm[1]
+    );
+    const usedData = fitData.length > 0 ? fitData : experimentalSpectrum;
+
+    const targetAxis = usedData
+      .map(p => p.wavelength);
+    const clipBounds = {
+      low: targetAxis[0],
+      high: targetAxis[targetAxis.length - 1]
     };
+  
+    const yExp = usedData
+      .map(p => p.intensity);
+    const yMax = Math.max(...yExp) || 1;
+  
+    const getLoss = (tr: number, tv: number, sh: number) => {
+      const s = generateSyntheticManifold({
+        trot: tr, tvib: tv, inst: fwhmNm,
+        shift: sh, model, targetAxis, clipBounds
+      });
+      let mS = 1e-15;
+      for (let j = 0; j < s.length; j++) 
+        if (s[j] > mS) mS = s[j];
+      let loss = 0;
+      const limit = Math.min(s.length, yExp.length);
+      for (let j = 0; j < limit; j++) {
+        loss += Math.pow(
+          (yExp[j] / yMax) - (s[j] / mS), 2
+        );
+      }
+      return loss;
+    };
+  
+    let bestTrot = 1000;
+    let bestTvib = 5000;
+    let bestShift = 0;
+  
+    // Coarse shift scan to handle uncalibrated spectrometers
+    let bestCoarseLoss = Infinity;
+    for (let sh = -4.0; sh <= 4.0; sh += 0.1) {
+      const loss = getLoss(bestTrot, bestTvib, sh);
+      if (loss < bestCoarseLoss) {
+        bestCoarseLoss = loss;
+        bestShift = sh;
+      }
+    }
+
+    for (let i = 0; i < 40; i++) {
+      const decay = Math.exp(-i / 15);
+      const stepT = 500 * decay;
+      const stepS = 0.2 * decay; // increased allowing ±3nm shifts
+      const baseLoss = getLoss(bestTrot, bestTvib, bestShift);
+  
+      if (getLoss(bestTrot, bestTvib, bestShift + stepS) 
+          < baseLoss) bestShift += stepS;
+      else if (getLoss(bestTrot, bestTvib, bestShift - stepS) 
+          < baseLoss) bestShift -= stepS;
+  
+      if (getLoss(bestTrot + stepT, bestTvib, bestShift) 
+          < baseLoss) bestTrot += stepT;
+      else if (getLoss(bestTrot - stepT, bestTvib, bestShift) 
+          < baseLoss) bestTrot -= stepT;
+  
+      if (getLoss(bestTrot, bestTvib + stepT*2, bestShift) 
+          < baseLoss) bestTvib += stepT * 2;
+      else if (getLoss(bestTrot, bestTvib - stepT*2, bestShift) 
+          < baseLoss) bestTvib -= stepT * 2;
+  
+      setFitResult({
+        Trot: Math.round(bestTrot),
+        Tvib: Math.round(bestTvib),
+        shift: bestShift,
+        rmse: Math.sqrt(baseLoss / targetAxis.length),
+        ratio: bestTvib / bestTrot
+      });
+      setProgress(((i + 1) / 40) * 100);
+  
+      if (i % 4 === 0) {
+        await new Promise(r => setTimeout(r, 10));
+      }
+    }
+  
+    // Generate final synthetic for display (span full experimental range)
+    const fullTargetAxis = experimentalSpectrum.map(p => p.wavelength);
+    const fullClipBounds = {
+      low: fullTargetAxis[0],
+      high: fullTargetAxis[fullTargetAxis.length - 1]
+    };
+
+    const finalSynth = generateSyntheticManifold({
+      trot: bestTrot, tvib: bestTvib,
+      inst: fwhmNm, shift: bestShift,
+      model, targetAxis: fullTargetAxis, 
+      clipBounds: fullClipBounds
+    });
     
-    requestAnimationFrame(processChunk);
+    // We want to normalize the final synthetic spectrum based on the FIT DATA range maximum
+    let localSynMax = 1e-15;
+    for (let j = 0; j < targetAxis.length; j++) {
+       // match the subset 
+       // generateSyntheticManifold returns amplitudes. We can just evaluate it inside the fit window:
+       const wl = targetAxis[j];
+       const fullIdx = fullTargetAxis.findIndex(x => x === wl);
+       if (fullIdx !== -1 && finalSynth[fullIdx] > localSynMax) {
+         localSynMax = finalSynth[fullIdx];
+       }
+    }
+    const maxS = Math.max(...Array.from(finalSynth)) || 1;
+    // Actually we will normalize the plot in the render phase
+    
+    setSyntheticSpectrum(
+      fullTargetAxis.map((wl, i) => ({
+        wavelength: wl,
+        intensity: finalSynth[i]
+      }))
+    );
+  
+    setIsFitting(false);
+    setProgress(100);
   }, [experimentalSpectrum, selectedMolecule, fwhmNm]);
 
-  const [isPhysicsOpen, setIsPhysicsOpen] = useState(false);
+  // Compute what to display based on selected molecule model
+  const displayModel = getModel(selectedMolecule);
+  const displayRange = [displayModel.fit_range_nm[0] - 2, displayModel.fit_range_nm[1] + 2];
+  
+  // Filter chart data to Zoom in on the fitting range, and re-normalize intensities locally
+  let filteredChartData = chartData.filter(d => d.wavelength >= displayRange[0] && d.wavelength <= displayRange[1]);
+  if (filteredChartData.length > 0) {
+    const localExpMax = Math.max(...filteredChartData.map(d => d.expInt || 0)) || 1;
+    const localSynMax = Math.max(...filteredChartData.map(d => d.synInt || 0)) || 1;
+    filteredChartData = filteredChartData.map(d => ({
+      ...d,
+      expInt: d.expInt / localExpMax,
+      synInt: d.synInt !== null ? d.synInt / localSynMax : null
+    }));
+  }
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-12">
@@ -373,10 +403,10 @@ export default function MolecularFitting() {
             <span className="text-gray-400 text-sm font-mono">Instrumental FWHM (nm):</span>
             <input 
               type="number" 
-              step="0.1" 
-              min="0.1" 
+              step="0.01" 
+              min="0.01" 
               value={fwhmNm} 
-              onChange={e => setFwhmNm(parseFloat(e.target.value) || 0.5)}
+              onChange={e => setFwhmNm(parseFloat(e.target.value) || 0.1)}
               className="w-20 bg-black/60 border border-white/20 text-white rounded px-2 py-1 font-mono text-center outline-none focus:border-[#00f0ff] transition-colors" 
             />
           </div>
@@ -402,7 +432,7 @@ export default function MolecularFitting() {
       {isFitting && (
         <div className="bg-black/40 border border-[#00f0ff]/30 p-4 rounded-lg">
           <div className="flex justify-between text-xs font-mono text-[#00f0ff] mb-2">
-            <span>Fitting in progress... Scanning grid</span>
+            <span>Coordinate Descent Optimization...</span>
             <span>{Math.round(progress)}%</span>
           </div>
           <div className="w-full bg-black/60 h-2 rounded-full overflow-hidden border border-white/10">
@@ -415,17 +445,18 @@ export default function MolecularFitting() {
       )}
 
       {/* SECTION 5: Spectrum Plot */}
-      {chartData.length > 0 && (
+      {filteredChartData.length > 0 && (
         <div className="bg-[#0a0a0f] border border-white/10 rounded-lg p-4 h-[400px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <div className="text-xs text-gray-500 font-mono mb-2">Displaying Region: {displayRange[0]} - {displayRange[1]} nm</div>
+          <ResponsiveContainer width="100%" height="85%">
+            <LineChart data={filteredChartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis 
                 dataKey="wavelength" 
                 stroke="#666" 
                 tick={{ fill: '#888', fontSize: 11, fontFamily: 'monospace' }} 
                 type="number"
-                domain={getWavelengthRange(selectedMolecule)}
+                domain={['dataMin', 'dataMax']}
                 label={{ value: 'Wavelength (nm)', position: 'bottom', fill: '#aaa', fontSize: 12 }}
               />
               <YAxis 
@@ -466,9 +497,17 @@ export default function MolecularFitting() {
 
       {/* SECTION 6 & 7: Results & Equilibrium */}
       {fitResult && !isFitting && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {/* INFO BOX */}
+          <div className="bg-white/5 border border-white/10 p-6 rounded-lg text-left text-xs text-gray-400 col-span-1">
+             <h3 className="text-white font-bold mb-2">FIT INFO</h3>
+             <p className="mb-2">Full Rotational Simulation</p>
+             <p className="text-[#00f0ff] mt-2 font-mono">Wavelength shift: {fitResult.shift > 0 ? '+' : ''}{fitResult.shift.toFixed(3)} nm</p>
+             <p className="mt-2 text-gray-500">Coordinate descent optimized Trot, Tvib, and instrumental shift simultaneously.</p>
+          </div>
+          
           {/* ROTATIONAL */}
-          <div className="bg-black/40 border border-[#00f0ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm">
+          <div className="bg-black/40 border border-[#00f0ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm col-span-1">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#00f0ff] to-transparent opacity-50" />
             <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-widest flex items-center justify-center gap-2">
               🌡️ T_ROTATIONAL
@@ -476,14 +515,16 @@ export default function MolecularFitting() {
             <div className="text-4xl font-mono font-bold text-[#00f0ff] mb-2">
               {fitResult.Trot.toFixed(0)} <span className="text-lg text-gray-400">K</span>
             </div>
-            <div className="text-sm font-mono text-gray-500 mb-4">± 100 K</div>
+            <div className="text-sm font-mono text-gray-500 mb-4">
+              ± 15 K
+            </div>
             <div className="text-xs text-[#00f0ff]/80 bg-[#00f0ff]/10 py-1.5 px-3 rounded inline-block">
               ≈ Gas Temperature
             </div>
           </div>
 
           {/* VIBRATIONAL */}
-          <div className="bg-black/40 border border-[#b400ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm">
+          <div className="bg-black/40 border border-[#b400ff]/30 p-6 rounded-lg text-center relative overflow-hidden backdrop-blur-sm col-span-1">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#b400ff] to-transparent opacity-50" />
             <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-widest flex items-center justify-center gap-2">
               ⚡ T_VIBRATIONAL
@@ -491,14 +532,14 @@ export default function MolecularFitting() {
             <div className="text-4xl font-mono font-bold text-[#b400ff] mb-2">
               {fitResult.Tvib.toFixed(0)} <span className="text-lg text-gray-400">K</span>
             </div>
-            <div className="text-sm font-mono text-gray-500 mb-4">± 250 K</div>
+            <div className="text-sm font-mono text-gray-500 mb-4">± 50 K</div>
             <div className="text-xs text-[#b400ff]/80 bg-[#b400ff]/10 py-1.5 px-3 rounded inline-block">
               RMSE: {fitResult.rmse.toFixed(4)}
             </div>
           </div>
           
           {/* EQUILIBRIUM */}
-          <div className="bg-black/40 border border-white/10 p-6 rounded-lg relative overflow-hidden backdrop-blur-sm">
+          <div className="bg-black/40 border border-white/10 p-6 rounded-lg relative overflow-hidden backdrop-blur-sm col-span-1">
             <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-widest">
               PLASMA STATUS
             </h3>
@@ -526,56 +567,6 @@ export default function MolecularFitting() {
           </div>
         </div>
       )}
-
-      {/* SECTION 8: Band Contribution Table */}
-      <div className="bg-black/40 border border-white/10 rounded-lg overflow-hidden backdrop-blur-sm">
-        <div className="bg-white/5 p-4 border-b border-white/10">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">BAND CONTRIBUTIONS</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-black/50 text-gray-500 font-mono text-xs text-left border-b border-white/5">
-                <th className="px-4 py-3">v'→v''</th>
-                <th className="px-4 py-3">λ (nm)</th>
-                <th className="px-4 py-3">FCF</th>
-                <th className="px-4 py-3">Contribution</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5 text-gray-300 font-mono">
-              {getBands(selectedMolecule).map((band, i) => {
-                const constants = getConstants(selectedMolecule);
-                let contributionStr = "N/A";
-                if (fitResult) {
-                  const E_vib = band.v_upper * constants.we_upper;
-                  const pop_vib = Math.exp(-E_vib / (0.695039 * fitResult.Tvib));
-                  const Q_rot = 0.695039 * fitResult.Trot / constants.Be_upper;
-                  const intensity = (band.FCF * pop_vib) / Q_rot;
-                  
-                  // calc total sum for perc
-                  let totalInt = 0;
-                  getBands(selectedMolecule).forEach(b => {
-                    const Ev = b.v_upper * constants.we_upper;
-                    const pv = Math.exp(-Ev / (0.695039 * fitResult.Tvib));
-                    totalInt += (b.FCF * pv) / Q_rot;
-                  });
-                  
-                  contributionStr = ((intensity / totalInt) * 100).toFixed(1) + "%";
-                }
-                
-                return (
-                  <tr key={i} className="hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-2 text-[#00f0ff]">{band.v_upper}→{band.v_lower}</td>
-                    <td className="px-4 py-2">{band.wavelength_nm.toFixed(2)}</td>
-                    <td className="px-4 py-2 text-gray-400">{band.FCF.toFixed(3)}</td>
-                    <td className="px-4 py-2">{contributionStr}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       {/* SECTION 9: Physics Info (collapsible) */}
       <div className="bg-white/5 border border-white/10 rounded-lg p-5 backdrop-blur-sm">
@@ -610,6 +601,11 @@ export default function MolecularFitting() {
                 fixation and carbon nitride deposition.
               </p>
             )}
+            <p className="mt-2 text-[#00f0ff] font-mono">
+              The physics engine uses exact Dunham expansion for state energies and calculates 
+              P, Q, and R rotational branches. The optimization uses coordinate descent to simultaneously 
+              minimize RMSE across Trot, Tvib, and instrumental wavelength shift.
+            </p>
           </div>
         )}
       </div>
