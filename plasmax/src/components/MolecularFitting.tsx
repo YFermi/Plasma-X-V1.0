@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useProject, type ReportItem } from '../context/ProjectContext';
 import { 
   generateSyntheticManifold,
   N2_SPS_MODEL,
@@ -20,7 +21,7 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts';
-import { Download, Upload, Activity, RefreshCw } from 'lucide-react';
+import { Download, Upload, Activity, RefreshCw, FileText } from 'lucide-react';
 
 type Molecule = 'N2' | 'C2' | 'CN' | 'OH' | 'N2+' | 'NO' | 'NH';
 
@@ -170,6 +171,7 @@ const parseCSV = (text: string): SpectrumPoint[] => {
 };
 
 export default function MolecularFitting() {
+  const { saveMolecularResult, saveMolecularSpectrum, addReportItem } = useProject();
   const [selectedMolecule, setSelectedMolecule] = useState<Molecule>('N2');
   
   const [experimentalSpectrum, setExperimentalSpectrum] = useState<SpectrumPoint[] | null>(null);
@@ -181,6 +183,8 @@ export default function MolecularFitting() {
   const [useDemo, setUseDemo] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]);
   const [isPhysicsOpen, setIsPhysicsOpen] = useState(false);
+  const [addedToReport, setAddedToReport] = useState(false);
+  const [reportLabel, setReportLabel] = useState('');
 
   // NEW: Update demo spectrum generation
   const generateDemoSpectrum = useCallback((molecule: Molecule): SpectrumPoint[] => {
@@ -402,6 +406,91 @@ export default function MolecularFitting() {
       }))
     );
   
+  const trotOnly = TROT_ONLY.has(selectedMolecule);
+  
+  let equilibriumStatus = '';
+  if (trotOnly) {
+    equilibriumStatus = 
+      `${meta.display} Trot = Tgas (direct measurement)`;
+  } else {
+    const ratio = bestTvib / bestTrot;
+    equilibriumStatus = ratio < 1.3
+      ? 'Thermal equilibrium'
+      : ratio < 3
+        ? 'Mild non-equilibrium'
+        : 'Strong non-equilibrium';
+  }
+
+  saveMolecularResult({
+    molecule: selectedMolecule,
+    system: meta.system,
+    Trot_K: Math.round(bestTrot),
+    Tvib_K: trotOnly ? null : Math.round(bestTvib),
+    RMSE: Math.sqrt(
+      getLoss(bestTrot, bestTvib, bestShift) / 
+      targetAxis.length
+    ),
+    shift_nm: bestShift,
+    equilibrium_status: equilibriumStatus,
+    timestamp: new Date().toISOString()
+  });
+
+  // Save spectrum for PDF using raw arrays
+  // (not state — state update is async)
+  if (experimentalSpectrum && finalSynth) {
+    const model = getModel(selectedMolecule);
+    const range = model.fit_range_nm;
+    const step = Math.max(1,
+      Math.floor(experimentalSpectrum.length / 200)
+    );
+
+    // Experimental points in fit range
+    const expFiltered = experimentalSpectrum
+      .filter((_, i) => i % step === 0)
+      .filter(p =>
+        p.wavelength >= range[0] - 1 &&
+        p.wavelength <= range[1] + 1
+      );
+
+    const expMax = Math.max(
+      ...expFiltered.map(p => p.intensity)
+    ) || 1;
+
+    // Synthetic points from raw array (not state)
+    // fullTargetAxis and finalSynth are in scope here
+    const synFiltered = fullTargetAxis
+      .map((wl, i) => ({ wl, val: finalSynth[i] }))
+      .filter((_, i) => i % step === 0)
+      .filter(p =>
+        p.wl >= range[0] - 1 &&
+        p.wl <= range[1] + 1
+      );
+
+    const synMax = Math.max(
+      ...synFiltered.map(p => p.val)
+    ) || 1;
+
+    const currentMeta = MOLECULE_META[selectedMolecule];
+
+    saveMolecularSpectrum({
+      experimental: expFiltered.map(p => ({
+        x: p.wavelength,
+        y: p.intensity / expMax
+      })),
+      synthetic: synFiltered.map(p => ({
+        x: p.wl,
+        y: p.val / synMax
+      })),
+      xLabel: 'Wavelength (nm)',
+      yLabel: 'Normalized Intensity',
+      title: currentMeta.display + ' ' +
+             currentMeta.system +
+             ' - Rotational Fit',
+      xMin: range[0] - 1,
+      xMax: range[1] + 1
+    });
+  }
+
     setIsFitting(false);
     setProgress(100);
   }, [experimentalSpectrum, selectedMolecule, fwhmNm]);
@@ -421,6 +510,121 @@ export default function MolecularFitting() {
       synInt: d.synInt !== null ? d.synInt / localSynMax : null
     }));
   }
+
+  const handleAddToReport = () => {
+    if (!fitResult || !experimentalSpectrum) return;
+    
+    const model  = getModel(selectedMolecule);
+    const range  = model.fit_range_nm;
+    const meta   = MOLECULE_META[selectedMolecule];
+    const trotOnly = TROT_ONLY.has(selectedMolecule);
+
+    const label = reportLabel.trim() ||
+      (trotOnly
+        ? `${meta.display} — Tgas = ${fitResult.Trot} K`
+        : `${meta.display} — Trot = ${fitResult.Trot} K  Tvib = ${fitResult.Tvib} K`
+      );
+
+    // Build equilibrium status string
+    const ratio = trotOnly ? 1 : fitResult.Tvib / fitResult.Trot;
+    const eqStatus = trotOnly
+      ? `${meta.display} Trot = Tgas (direct measurement)`
+      : ratio < 1.3
+        ? 'Thermal equilibrium'
+        : ratio < 3
+          ? 'Mild non-equilibrium'
+          : 'Strong non-equilibrium';
+
+    // ── Build spectrum data ──────────────────
+    // Filter BOTH arrays to fit range FIRST
+    // then normalize BOTH to 0-1
+    // then sample at the same step
+    let spectrumData: any = undefined;
+
+    if (syntheticSpectrum && experimentalSpectrum) {
+
+      // Step 1: Filter experimental to fit range
+      const expInRange = experimentalSpectrum.filter(p =>
+        p.wavelength >= range[0] - 0.5 &&
+        p.wavelength <= range[1] + 0.5
+      );
+
+      // Step 2: Filter synthetic to same range
+      const synInRange = syntheticSpectrum.filter(p =>
+        p.wavelength >= range[0] - 0.5 &&
+        p.wavelength <= range[1] + 0.5
+      );
+
+      if (expInRange.length > 5 && synInRange.length > 5) {
+
+        // Step 3: Normalize experimental to 0-1
+        const expMax = Math.max(
+          ...expInRange.map(p => p.intensity)
+        ) || 1;
+        const expMin = Math.min(
+          ...expInRange.map(p => p.intensity)
+        );
+        const expRange = expMax - expMin || 1;
+
+        // Step 4: Normalize synthetic to 0-1
+        const synMax = Math.max(
+          ...synInRange.map(p => p.intensity)
+        ) || 1;
+
+        // Step 5: Sample max 150 points each
+        const expStep = Math.max(
+          1, Math.floor(expInRange.length / 150)
+        );
+        const synStep = Math.max(
+          1, Math.floor(synInRange.length / 150)
+        );
+
+        spectrumData = {
+          experimental: expInRange
+            .filter((_, i) => i % expStep === 0)
+            .map(p => ({
+              x: p.wavelength,
+              y: (p.intensity - expMin) / expRange
+            })),
+          synthetic: synInRange
+            .filter((_, i) => i % synStep === 0)
+            .map(p => ({
+              x: p.wavelength,
+              y: Math.max(0, Math.min(1, 
+                p.intensity / synMax
+              ))
+            })),
+          xLabel: 'Wavelength (nm)',
+          yLabel: 'Normalized Intensity',
+          title: meta.display + ' ' +
+                 meta.system +
+                 ' - Rotational Fit',
+          xMin: range[0] - 0.5,
+          xMax: range[1] + 0.5
+        };
+      }
+    }
+
+    // ── Save to report ───────────────────────
+    addReportItem({
+      type: 'molecular',
+      label,
+      result: {
+        molecule: selectedMolecule,
+        system: meta.system,
+        Trot_K: fitResult.Trot,
+        Tvib_K: trotOnly ? null : fitResult.Tvib,
+        RMSE: fitResult.rmse,
+        shift_nm: fitResult.shift,
+        equilibrium_status: eqStatus,
+        timestamp: new Date().toISOString()
+      },
+      spectrum: spectrumData,
+      timestamp: new Date().toISOString()
+    });
+
+    setAddedToReport(true);
+  };
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-12">
@@ -456,6 +660,8 @@ export default function MolecularFitting() {
                       setFitResult(null);
                       setChartData([]);
                       setFwhmNm(m.demoInst);
+                      setAddedToReport(false);
+                      setReportLabel('');
                     }}
                     className={`p-4 rounded-lg border text-left transition-all duration-300 relative overflow-hidden backdrop-blur-sm ${
                       sel
@@ -775,6 +981,41 @@ export default function MolecularFitting() {
         )}
       </div>
       
+      {/* Add to Report panel */}
+      {fitResult && !isFitting && (
+        <div className="bg-black/40 border border-[#00f0ff]/20 rounded-lg p-5">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+            <FileText size={13} className="text-[#00f0ff]" />
+            Add This Result to Report
+          </h3>
+          <div className="flex gap-3 items-center flex-wrap">
+            <input
+              type="text"
+              value={reportLabel}
+              onChange={e => setReportLabel(e.target.value)}
+              placeholder={`${MOLECULE_META[selectedMolecule].display} fit — Trot=${fitResult.Trot}K`}
+              className="flex-1 min-w-0 bg-black/60 border border-white/10 text-white rounded px-3 py-2 text-xs font-mono outline-none focus:border-[#00f0ff] transition-colors"
+            />
+            <button
+              onClick={handleAddToReport}
+              disabled={addedToReport}
+              className={`px-4 py-2 rounded text-xs font-bold tracking-wider uppercase transition-all flex items-center gap-2 shrink-0 ${
+                addedToReport
+                  ? 'bg-green-500/20 border border-green-500/30 text-green-400 cursor-default'
+                  : 'bg-[#00f0ff]/20 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/30'
+              }`}
+            >
+              {addedToReport ? '✓ Added to Report' : '+ Add to Report'}
+            </button>
+          </div>
+          {addedToReport && (
+            <p className="text-[10px] text-green-400/70 font-mono mt-2">
+              Result saved. Go to Report tab to view and export.
+            </p>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

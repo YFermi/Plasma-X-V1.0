@@ -19,7 +19,9 @@ import {
   X,
   Plus,
   Flame,
-  Waves
+  Waves,
+  FileText,
+  FolderOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -54,11 +56,15 @@ import { NistStatusDot } from './components/NistStatusDot';
 import StarkCalculator from './components/StarkCalculator'; // RESTORED
 import H2TemperatureCalculator from './components/H2TemperatureCalculator'; // MERGE-INTEGRATION
 import MolecularFitting from './components/MolecularFitting'; // MERGE-INTEGRATION
+import ReportGenerator from './components/ReportGenerator';
+import { ProjectProvider, useProject } from './context/ProjectContext';
 
 export default function App() {
   return (
     <SoundProvider>
-      <AppContent />
+      <ProjectProvider>
+        <AppContent />
+      </ProjectProvider>
     </SoundProvider>
   );
 }
@@ -233,6 +239,7 @@ function AppContent() {
       case 'stark': return <StarkCalculator />; // RESTORED
       case 'h2temp': return <H2TemperatureCalculator />; // MERGE-INTEGRATION
       case 'molfit': return <MolecularFitting />; // MERGE-INTEGRATION
+      case 'report': return <ReportGenerator />;
       case 'simulator': return <SpectrumSimulator />;
       default: return (
         <div className="flex flex-col items-center justify-center h-[70vh] text-center space-y-4">
@@ -361,6 +368,13 @@ function AppContent() {
             icon={<Calculator className="w-5 h-5" />} 
             label="Simulator" 
             onClick={() => setCurrentView('simulator')}
+            expanded={sidebarOpen}
+          />
+          <SidebarItem 
+            icon={<FileText className="w-5 h-5" />} 
+            label="📄 Report" 
+            active={currentView === 'report'}
+            onClick={() => setCurrentView('report')}
             expanded={sidebarOpen}
           />
           

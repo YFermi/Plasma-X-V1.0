@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react'; // NEW
+import { useProject } from '../context/ProjectContext';
 import { H2_FULCHER_QBRANCH } from '../data/molecular_constants'; // NEW
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts'; // NEW
+import { FileText } from 'lucide-react';
 
 interface H2LineData { // NEW
   J: number; // FROM-GLOWLOGIC
@@ -90,6 +92,7 @@ function findPeakNear( // FROM-GLOWLOGIC
 }
 
 export default function H2TemperatureCalculator() { // NEW
+  const { saveH2Result, addReportItem } = useProject();
   const [selectedLines, setSelectedLines] = useState<H2LineData[]>( // NEW
     H2_FULCHER_QBRANCH.map(l => ({ // NEW
       J: l.J, // NEW
@@ -104,6 +107,8 @@ export default function H2TemperatureCalculator() { // NEW
   const [activeTab, setActiveTab] = useState<"manual" | "upload">("manual"); // NEW
   const [isExplanationOpen, setIsExplanationOpen] = useState(false); // NEW
   const [copyFeedback, setCopyFeedback] = useState(false); // NEW
+  const [h2AddedToReport, setH2AddedToReport] = useState(false);
+  const [h2ReportLabel, setH2ReportLabel] = useState('');
 
   const handleIntensityChange = (J: number, val: string) => { // NEW
     const num = parseFloat(val); // NEW
@@ -166,6 +171,16 @@ export default function H2TemperatureCalculator() { // NEW
     return calculateBoltzmannTemp(validLines); // NEW
   }, [selectedLines]); // NEW
 
+  useEffect(() => {
+    if (result && result.T_gas && result.R2) {
+      saveH2Result({
+        Tgas_K: result.T_gas,
+        R2: result.R2,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [result]);
+
   const getR2Color = (r2: number) => { // NEW
     if (r2 > 0.98) return { border: 'border-green-500/50', bg: 'bg-green-500/10', text: 'text-green-400', label: "✅ Excellent fit quality" }; // NEW
     if (r2 > 0.95) return { border: 'border-yellow-400/50', bg: 'bg-yellow-400/10', text: 'text-yellow-400', label: "🟢 Good fit quality" }; // NEW
@@ -191,6 +206,56 @@ export default function H2TemperatureCalculator() { // NEW
     ]; // NEW
     return { scatter, line }; // NEW
   }, [result]); // NEW
+
+  const handleAddH2ToReport = () => {
+    if (!result?.T_gas || !result?.R2) return;
+
+    const label = h2ReportLabel.trim() ||
+      `H2 Fulcher - Tgas = ${result.T_gas.toFixed(0)} K`;
+
+    // Build Boltzmann plot data for PDF
+    // x = E_cm1 (upper level energy in cm-1)
+    // y = ln(I / S_J) (Boltzmann population)
+    const pts = (result.points || []).filter(
+      p => isFinite(p.x) && isFinite(p.y)
+    );
+
+    const xVals = pts.map(p => p.x);
+    const xMin  = Math.min(...xVals);
+    const xMax  = Math.max(...xVals);
+
+    // Build the regression line as two-point array
+    const padding = (xMax - xMin) * 0.05;
+    const lineX1  = xMin - padding;
+    const lineX2  = xMax + padding;
+
+    // StoredBoltzmann format matches ProjectContext
+    const boltzPlot = {
+      points: pts.map(p => ({
+        x: p.x,
+        y: p.y,
+        label: `J=${p.J}`
+      })),
+      slope:     result.slope,
+      intercept: result.intercept,
+      xMin: lineX1,
+      xMax: lineX2
+    };
+
+    addReportItem({
+      type: 'h2',
+      label,
+      result: {
+        Tgas_K: Math.round(result.T_gas),
+        R2: result.R2,
+        timestamp: new Date().toISOString()
+      },
+      spectrum: boltzPlot,
+      timestamp: new Date().toISOString()
+    });
+
+    setH2AddedToReport(true);
+  };
 
   const copyResult = () => { // NEW
     if (result) { // NEW
@@ -379,12 +444,37 @@ export default function H2TemperatureCalculator() { // NEW
                 >
                   {copyFeedback ? '✓ COPIED' : '📋 COPY RESULT'}
                 </button>
-                <button className="px-4 py-2 bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 border border-[#00f0ff]/30 rounded text-xs font-bold uppercase tracking-wider text-[#00f0ff] transition-colors shadow-[0_0_10px_rgba(0,240,255,0.1)]">
-                  📊 ADD TO REPORT
-                </button>
               </div>
             )}
           </div>
+
+          {/* Add H2 result to Report */}
+          {result?.T_gas && (
+            <div className="bg-black/40 border border-[#ff6b35]/20 rounded-lg p-4 flex flex-wrap gap-3 items-center mt-4">
+              <FileText size={14} className="text-[#ff6b35] shrink-0" />
+              <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">
+                Add to Report:
+              </span>
+              <input
+                type="text"
+                value={h2ReportLabel}
+                onChange={e => setH2ReportLabel(e.target.value)}
+                placeholder={`H2 Fulcher Tgas=${result.T_gas.toFixed(0)}K`}
+                className="flex-1 min-w-0 bg-black/60 border border-white/10 text-white rounded px-3 py-1.5 text-xs font-mono outline-none focus:border-[#ff6b35] transition-colors"
+              />
+              <button
+                onClick={handleAddH2ToReport}
+                disabled={h2AddedToReport}
+                className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-all shrink-0 ${
+                  h2AddedToReport
+                    ? 'bg-green-500/20 border border-green-500/30 text-green-400'
+                    : 'bg-[#ff6b35]/20 border border-[#ff6b35]/30 text-[#ff6b35] hover:bg-[#ff6b35]/30'
+                }`}
+              >
+                {h2AddedToReport ? '✓ Added' : '+ Add'}
+              </button>
+            </div>
+          )}
 
           {/* SECTION 5: TEMPERATURE CONTEXT */}
           {result && (

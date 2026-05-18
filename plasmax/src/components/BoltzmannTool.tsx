@@ -47,9 +47,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 
+import { useProject } from '../context/ProjectContext';
 import { SkeletonLoader } from './LoadingSkeleton';
 
 export function BoltzmannTool({ externalLines = [], onClearExternal }: { externalLines?: any[], onClearExternal?: () => void }) {
+  const { saveBoltzmannResult } = useProject();
   const [loading, setLoading] = useState(true);
   const [inputWavelength, setInputWavelength] = useState('');
 
@@ -213,6 +215,17 @@ export function BoltzmannTool({ externalLines = [], onClearExternal }: { externa
   const removePoint = (id: string) => {
     setPoints(prev => prev.filter(p => p.id !== id));
   };
+
+  React.useEffect(() => {
+    if (hasCalculated && stats && isFinite(stats.te)) {
+      saveBoltzmannResult({
+        Te_eV: stats.te / 11604,
+        R2: stats.r2,
+        lines_used: points.filter(p => !p.excluded).map(p => `${p.line?.element} ${p.line?.ion} (${p.wavelength}nm)`),
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [hasCalculated, stats]);
 
   // Regression line data for chart
   const chartData = useMemo(() => {

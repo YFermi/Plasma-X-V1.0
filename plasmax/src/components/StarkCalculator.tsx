@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useProject } from '../context/ProjectContext';
 import { 
   LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, 
   ReferenceLine, Line, ResponsiveContainer 
 } from 'recharts';
-import { ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import { ChevronDown, ChevronUp, Upload, FileText } from 'lucide-react';
 import {
   STARK_DATABASE,
   StarkEntry,
@@ -24,7 +25,13 @@ interface SavedMeasurement {
 }
 
 export default function StarkCalculator() {
+  const { saveStarkResult, saveStarkSpectrum, addReportItem } = useProject();
   const [selectedEntry, setSelectedEntry] = useState<StarkEntry | null>(STARK_DATABASE[0]);
+  
+  const [starkAddedToReport, setStarkAddedToReport] = useState(false);
+  const [starkReportLabel, setStarkReportLabel] = useState('');
+  const [uploadAddedToReport, setUploadAddedToReport] = useState(false);
+  const [uploadReportLabel, setUploadReportLabel] = useState('');
   
   // SECTION 4 Inputs with 300ms debounce
   const [totalFWHMInput, setTotalFWHMInput] = useState<string>("0.2");
@@ -123,6 +130,25 @@ export default function StarkCalculator() {
     if (W_stark === null || W_doppler === 0) return 0;
     return W_stark / W_doppler;
   }, [W_stark, W_doppler]);
+
+  useEffect(() => {
+    if (!neResult || !selectedEntry || 
+        W_stark === null || W_stark <= 0) return;
+    saveStarkResult({
+      ne_cm3: neResult.ne_cm3,
+      ne_min: neResult.ne_min,
+      ne_max: neResult.ne_max,
+      line_used: selectedEntry.line_name,
+      W_total_nm: numTotalFWHM,
+      W_inst_nm: numInstFWHM,
+      W_doppler_nm: W_doppler,
+      W_stark_nm: W_stark,
+      uncertainty_percent: selectedEntry.uncertainty_percent,
+      reliable: neResult.reliable,
+      method: 'manual',
+      timestamp: new Date().toISOString()
+    });
+  }, [neResult, selectedEntry]);
 
   const addMeasurement = () => {
     if (!selectedEntry || !neResult) return;
@@ -436,7 +462,129 @@ export default function StarkCalculator() {
       w_doppler,
       w_stark
     });
+    saveStarkResult({
+      ne_cm3: neResult.ne_cm3,
+      ne_min: neResult.ne_min,
+      ne_max: neResult.ne_max,
+      line_used: entry.line_name,
+      W_total_nm: fw,
+      W_inst_nm: instFWHM,
+      W_doppler_nm: w_doppler,
+      W_stark_nm: w_stark,
+      uncertainty_percent: entry.uncertainty_percent,
+      reliable: neResult.reliable,
+      method: 'voigt_fit',
+      timestamp: new Date().toISOString()
+    });
+
+  // Save spectrum for PDF
+  if (uploadWindowedData.length > 0) {
+    saveStarkSpectrum({
+      experimental: uploadWindowedData.map(p => ({
+        x: p.wl, y: p.raw
+      })),
+      synthetic: uploadWindowedData.map(p => ({
+        x: p.wl, y: p.fit ?? 0
+      })),
+      xLabel: 'Wavelength (nm)',
+      yLabel: 'Normalized Intensity',
+      title: `${entry.line_name} — Voigt Profile Fit`,
+      xMin: uploadWindowedData[0].wl,
+      xMax: uploadWindowedData[uploadWindowedData.length - 1].wl
+    });
+  }
+
     setUploadIsFitting(false);
+  };
+
+  const handleAddStarkToReport = () => {
+    if (!neResult || !selectedEntry) return;
+    const label = starkReportLabel.trim() ||
+      `${selectedEntry.line_name} Stark — ne=${
+        neResult.ne_cm3.toExponential(2)
+      } cm-3`;
+    addReportItem({
+      type: 'stark',
+      label,
+      result: {
+        ne_cm3: neResult.ne_cm3,
+        ne_min: neResult.ne_min,
+        ne_max: neResult.ne_max,
+        line_used: selectedEntry.line_name,
+        W_total_nm: numTotalFWHM,
+        W_inst_nm: numInstFWHM,
+        W_doppler_nm: W_doppler,
+        W_stark_nm: W_stark ?? 0,
+        uncertainty_percent: selectedEntry.uncertainty_percent,
+        reliable: neResult.reliable,
+        method: 'manual',
+        timestamp: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    });
+    setStarkAddedToReport(true);
+  };
+
+  const handleAddUploadToReport = () => {
+    if (!uploadNeResult || !uploadDetectedLine || !uploadFitResult) return;
+    const label = uploadReportLabel.trim() ||
+      `${uploadDetectedLine.line_name} Voigt fit — ne=${
+        uploadNeResult.ne_cm3.toExponential(2)
+      } cm-3`;
+    addReportItem({
+      type: 'stark',
+      label,
+      result: {
+        ne_cm3: uploadNeResult.ne_cm3,
+        ne_min: uploadNeResult.ne_min,
+        ne_max: uploadNeResult.ne_max,
+        line_used: uploadDetectedLine.line_name,
+        W_total_nm: uploadFitResult.fwhm_nm,
+        W_inst_nm: parseFloat(uploadInstFWHM) || 0,
+        W_doppler_nm: uploadNeResult.w_doppler,
+        W_stark_nm: uploadNeResult.w_stark,
+        uncertainty_percent: 
+          uploadDetectedLine.uncertainty_percent,
+        reliable: uploadNeResult.reliable,
+        method: 'voigt_fit',
+        timestamp: new Date().toISOString()
+      },
+      spectrum: uploadWindowedData.length > 0 
+        ? (() => {
+            const data = uploadWindowedData;
+            
+            // raw is already normalized 0-1 from norm array
+            // fit values from voigt() need to be 
+            // normalized by their own maximum
+            const fitMax = data.reduce((a, p) => Math.max(a, p.fit ?? 0), 0) || 1;
+
+            // Ensure xMin and xMax are valid
+            const xMin = data.reduce((a, p) => Math.min(a, p.wl), Infinity);
+            const xMax = data.reduce((a, p) => Math.max(a, p.wl), -Infinity);
+
+            return {
+              experimental: data.map(p => ({
+                x: p.wl,
+                y: Math.max(0, Math.min(1, p.raw))
+              })),
+              synthetic: data.map(p => ({
+                x: p.wl,
+                y: Math.max(0, Math.min(1,
+                  (p.fit ?? 0) / fitMax
+                ))
+              })),
+              xLabel: 'Wavelength (nm)',
+              yLabel: 'Normalized Intensity',
+              title: uploadDetectedLine.line_name +
+                     ' - Voigt Profile Fit',
+              xMin,
+              xMax
+            };
+          })()
+        : undefined,
+      timestamp: new Date().toISOString()
+    });
+    setUploadAddedToReport(true);
   };
 
   return (
@@ -667,6 +815,34 @@ export default function StarkCalculator() {
                   <span className="bg-red-500/20 text-red-500 px-4 py-2 rounded-md text-sm font-bold tracking-wider border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]">🔴 NOT FEASIBLE</span>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Add manual Stark to Report */}
+          {neResult && (
+            <div className="bg-white/5 border border-[#00f0ff]/20 rounded-lg p-4 flex flex-wrap gap-3 items-center">
+              <FileText size={14} className="text-[#00f0ff] shrink-0" />
+              <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">
+                Add to Report:
+              </span>
+              <input
+                type="text"
+                value={starkReportLabel}
+                onChange={e => setStarkReportLabel(e.target.value)}
+                placeholder={`${selectedEntry?.line_name} manual Stark`}
+                className="flex-1 min-w-0 bg-black/60 border border-white/10 text-white rounded px-3 py-1.5 text-xs font-mono outline-none focus:border-[#00f0ff]"
+              />
+              <button
+                onClick={handleAddStarkToReport}
+                disabled={starkAddedToReport}
+                className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-all shrink-0 ${
+                  starkAddedToReport
+                    ? 'bg-green-500/20 border border-green-500/30 text-green-400'
+                    : 'bg-[#00f0ff]/20 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/30'
+                }`}
+              >
+                {starkAddedToReport ? '✓ Added' : '+ Add'}
+              </button>
             </div>
           )}
 
@@ -1015,6 +1191,60 @@ export default function StarkCalculator() {
                   )}
                 </div>
 
+              </div>
+            )}
+
+            {/* Add Voigt Fit to Report */}
+            {uploadNeResult && uploadFitResult && (
+              <div className="bg-black/40 border border-[#00f0ff]/20 rounded-lg p-5 mt-4">
+                
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText 
+                    size={15} 
+                    className="text-[#00f0ff]" 
+                  />
+                  <span className="text-xs font-bold uppercase tracking-widest text-gray-400">
+                    Add Voigt Fit to Report
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-3 items-center">
+                  
+                  <input
+                    type="text"
+                    value={uploadReportLabel}
+                    onChange={e => 
+                      setUploadReportLabel(e.target.value)
+                    }
+                    placeholder={`${
+                      uploadDetectedLine?.line_name || 'Hα'
+                    } Voigt fit — ne=${
+                      uploadNeResult.ne_cm3.toExponential(2)
+                    } cm-3`}
+                    className="flex-1 min-w-0 bg-black/60 border border-white/10 text-white rounded px-3 py-2 text-xs font-mono outline-none focus:border-[#00f0ff] transition-colors"
+                  />
+
+                  <button
+                    onClick={handleAddUploadToReport}
+                    disabled={uploadAddedToReport}
+                    className={`px-5 py-2 rounded text-xs font-bold tracking-wider uppercase transition-all shrink-0 ${
+                      uploadAddedToReport
+                        ? 'bg-green-500/20 border border-green-500/30 text-green-400'
+                        : 'bg-[#00f0ff]/20 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/30'
+                    }`}
+                  >
+                    {uploadAddedToReport
+                      ? '✓ Added to Report'
+                      : '+ Add Voigt Fit'}
+                  </button>
+
+                </div>
+
+                {uploadAddedToReport && (
+                  <p className="text-[10px] text-green-400/70 font-mono mt-3">
+                    Voigt fit spectrum and electron density saved to the report.
+                  </p>
+                )}
               </div>
             )}
 
