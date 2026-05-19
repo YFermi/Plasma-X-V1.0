@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "@tailwindcss/vite": "^4.3.0",
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
@@ -27,10 +29,12 @@
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

@@ -22,7 +22,8 @@ import {
   Waves,
   FileText,
   FolderOpen,
-  Telescope
+  Telescope,
+  Box
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -60,6 +61,7 @@ import MolecularFitting from './components/MolecularFitting'; // MERGE-INTEGRATI
 import ReportGenerator from './components/ReportGenerator';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import PlasmaAdvisor from './components/PlasmaAdvisor';
+import SetupVisualizer3D from './components/3d/SetupVisualizer3D';
 
 export default function App() {
   return (
@@ -243,6 +245,8 @@ function AppContent() {
       case 'molfit': return <MolecularFitting />; // MERGE-INTEGRATION
       case 'advisor': 
         return <PlasmaAdvisor onNavigate={setCurrentView} />;
+      case 'visualizer':
+        return <SetupVisualizer3D />;
       case 'report': return <ReportGenerator />;
       case 'simulator': return <SpectrumSimulator />;
       default: return (
@@ -339,6 +343,13 @@ function AppContent() {
             label="🔭 Plasma Advisor" 
             active={currentView === 'advisor'}
             onClick={() => setCurrentView('advisor')}
+            expanded={sidebarOpen}
+          />
+          <SidebarItem 
+            icon={<Box className="w-5 h-5" />} 
+            label="🔮 3D Visualizer" 
+            active={currentView === 'visualizer'}
+            onClick={() => setCurrentView('visualizer')}
             expanded={sidebarOpen}
           />
           <SidebarItem 
