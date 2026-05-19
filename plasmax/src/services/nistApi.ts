@@ -20,8 +20,8 @@ export interface NistLine {
   relInt: string;
   aki: number | null;
   accuracy: string;
-  energyLow: string;
-  energyHigh: string;
+  energyLow: number | null;
+  energyHigh: number | null;
   confLow: string;
   confHigh: string;
   termLow: string;

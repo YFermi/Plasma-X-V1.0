@@ -122,7 +122,7 @@ export function BoltzmannTool({ externalLines = [], onClearExternal }: { externa
       if (!check.valid) return false;
       const val = Math.log(
         (p.intensity * (p.line?.wavelength || p.wavelength)) /
-        ((p.line?.gk || p.gk) * (p.line?.aki || p.aki))
+        (p.line.gk * p.line.aki)
       );
       return isFinite(val) && !isNaN(val);
     });

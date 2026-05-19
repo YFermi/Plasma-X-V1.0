@@ -25,5 +25,17 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "plasmax/src/**/*",
+    "plasmax/src/**/*.tsx",
+    "plasmax/src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "glowlogic",
+    "Plasma-X-V1.0-main",
+    "dist",
+    "build"
+  ]
 }
