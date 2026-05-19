@@ -260,7 +260,7 @@ export default function ReportGenerator() {
         'B2Su+->X2Sg+': 'B(2)Su+ - X(2)Sg+',
         // NO Beta System
         'A2Sg->X2Pi-NO': 'A(2)S+ - X(2)Pi',
-        'A2S+->X2Pi': 'A(2)S+ - X(2)Pi',
+        'A2S+->X2Pi-NO': 'A(2)S+ - X(2)Pi',
         // NH System
         'A3Pi->X3Sg': 'A(3)Pi - X(3)S-',
         'A3Pi->X3S-': 'A(3)Pi - X(3)S-',

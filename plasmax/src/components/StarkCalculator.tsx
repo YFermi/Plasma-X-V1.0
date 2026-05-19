@@ -1195,7 +1195,7 @@ export default function StarkCalculator() {
             )}
 
             {/* Add Voigt Fit to Report */}
-            {uploadNeResult && uploadFitResult && (
+            {uploadSpectrum && uploadDetectedLine && (
               <div className="bg-black/40 border border-[#00f0ff]/20 rounded-lg p-5 mt-4">
                 
                 <div className="flex items-center gap-2 mb-3">
@@ -1218,18 +1218,18 @@ export default function StarkCalculator() {
                     }
                     placeholder={`${
                       uploadDetectedLine?.line_name || 'Hα'
-                    } Voigt fit — ne=${
-                      uploadNeResult.ne_cm3.toExponential(2)
-                    } cm-3`}
+                    } Voigt fit ${uploadNeResult ? `— ne=${uploadNeResult.ne_cm3.toExponential(2)} cm-3` : ''}`}
                     className="flex-1 min-w-0 bg-black/60 border border-white/10 text-white rounded px-3 py-2 text-xs font-mono outline-none focus:border-[#00f0ff] transition-colors"
                   />
 
                   <button
                     onClick={handleAddUploadToReport}
-                    disabled={uploadAddedToReport}
+                    disabled={uploadAddedToReport || !uploadNeResult || !uploadFitResult}
                     className={`px-5 py-2 rounded text-xs font-bold tracking-wider uppercase transition-all shrink-0 ${
                       uploadAddedToReport
                         ? 'bg-green-500/20 border border-green-500/30 text-green-400'
+                        : (!uploadNeResult || !uploadFitResult)
+                        ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-white/10'
                         : 'bg-[#00f0ff]/20 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/30'
                     }`}
                   >
@@ -1239,6 +1239,12 @@ export default function StarkCalculator() {
                   </button>
 
                 </div>
+                
+                {(!uploadNeResult || !uploadFitResult) && (
+                  <p className="text-[10px] text-gray-500 mt-2 font-mono">
+                    Run the Voigt fit first to calculate electron density before adding to report.
+                  </p>
+                )}
 
                 {uploadAddedToReport && (
                   <p className="text-[10px] text-green-400/70 font-mono mt-3">
