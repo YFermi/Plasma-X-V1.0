@@ -324,6 +324,146 @@ function getComponentInfo(
 }
 
 // ─────────────────────────────────────────────
+// DISTANCE ANNOTATIONS
+// ─────────────────────────────────────────────
+
+function DistanceArrow({
+  from,
+  to,
+  y = -1.55,
+  label,
+  color = '#ff6b35'
+}: {
+  from: number;
+  to: number;
+  y?: number;
+  label: string;
+  color?: string;
+}) {
+  const midX = (from + to) / 2;
+  const length = Math.abs(to - from);
+
+  if (length < 0.1) return null;
+
+  return (
+    <group>
+      {/* Main horizontal line */}
+      <mesh position={[midX, y, 0]}>
+        <boxGeometry args={[length, 0.012, 0.012]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.5}
+        />
+      </mesh>
+
+      {/* Left tick mark */}
+      <mesh position={[from, y, 0]}>
+        <boxGeometry args={[0.012, 0.18, 0.012]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.0}
+        />
+      </mesh>
+
+      {/* Right tick mark */}
+      <mesh position={[to, y, 0]}>
+        <boxGeometry args={[0.012, 0.18, 0.012]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.0}
+        />
+      </mesh>
+
+      {/* Left arrowhead */}
+      <mesh 
+        position={[from + 0.08, y, 0]}
+        rotation={[0, 0, Math.PI / 2]}
+      >
+        <coneGeometry args={[0.04, 0.12, 6]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.0}
+        />
+      </mesh>
+
+      {/* Right arrowhead */}
+      <mesh 
+        position={[to - 0.08, y, 0]}
+        rotation={[0, 0, -Math.PI / 2]}
+      >
+        <coneGeometry args={[0.04, 0.12, 6]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.0}
+        />
+      </mesh>
+
+      {/* Label background bar */}
+      <mesh position={[midX, y + 0.18, 0]}>
+        <boxGeometry args={[
+          Math.max(1.2, length * 0.6), 
+          0.18, 
+          0.01
+        ]} />
+        <meshStandardMaterial
+          color="#000000"
+          transparent
+          opacity={0.7}
+        />
+      </mesh>
+
+      {/* Dashed vertical guides down to bench */}
+      {[from, to].map((x, i) => (
+        <group key={i}>
+          {[0, 1, 2, 3].map(j => (
+            <mesh key={j} 
+              position={[
+                x, 
+                y + 0.4 + j * 0.12, 
+                0
+              ]}
+            >
+              <boxGeometry 
+                args={[0.008, 0.06, 0.008]} 
+              />
+              <meshStandardMaterial
+                color={color}
+                transparent
+                opacity={0.3}
+              />
+            </mesh>
+          ))}
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function DistanceDot({
+  position,
+  color = '#ff6b35'
+}: {
+  position: [number, number, number];
+  color?: string;
+}) {
+  return (
+    <mesh position={position}>
+      <sphereGeometry args={[0.05, 8, 8]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={2}
+      />
+    </mesh>
+  );
+}
+
+// ─────────────────────────────────────────────
 // MAIN 3D SCENE
 // ─────────────────────────────────────────────
 
@@ -333,7 +473,10 @@ function Scene({
   focalLen,
   isUV,
   selectedComp,
-  onSelect
+  onSelect,
+  d1_mm,
+  d2_mm,
+  d3_mm
 }: {
   sourceId:     PlasmaSourceId | null;
   spectName:    string;
@@ -341,6 +484,9 @@ function Scene({
   isUV:         boolean;
   selectedComp: string | null;
   onSelect:     (name: string) => void;
+  d1_mm:        number;
+  d2_mm:        number;
+  d3_mm:        number;
 }) {
   const source = PLASMA_SOURCES.find(
     s => s.id === sourceId
@@ -488,6 +634,52 @@ function Scene({
         />
       )}
 
+      {/* ── Distance annotations ──────────── */}
+      
+      {/* d1: Source → Lens (working distance) */}
+      <DistanceArrow
+        from={-1.5}
+        to={1.8}
+        y={-1.6}
+        label={`d1: ${d1_mm} mm`}
+        color="#ff6b35"
+      />
+      <DistanceDot
+        position={[-1.5, -1.6, 0]}
+        color="#ff6b35"
+      />
+      <DistanceDot
+        position={[1.8, -1.6, 0]}
+        color="#ff6b35"
+      />
+
+      {/* d2: Lens → Fiber input (focal distance) */}
+      <DistanceArrow
+        from={1.8}
+        to={2.15}
+        y={-1.85}
+        label={`d2: ${d2_mm} mm`}
+        color="#00f0ff"
+      />
+      <DistanceDot
+        position={[1.8, -1.85, 0]}
+        color="#00f0ff"
+      />
+      <DistanceDot
+        position={[2.15, -1.85, 0]}
+        color="#00f0ff"
+      />
+
+      {/* d3: Fiber length indicator dots */}
+      <DistanceDot
+        position={[2.15, -1.6, 0]}
+        color="#ffcc44"
+      />
+      <DistanceDot
+        position={[4.6, -1.6, 0]}
+        color="#ffcc44"
+      />
+
       {/* ── Orbit controls ────────────────── */}
       <OrbitControls
         enablePan={true}
@@ -534,7 +726,14 @@ function ControlPanel({
   selectedComp,
   onClearSelection
 }: {
-  sel:             AdvisorSelection;
+  sel: AdvisorSelection & {
+    d1?: number;
+    d2?: number;
+    d3?: number;
+    onD1Change?: (v: number) => void;
+    onD2Change?: (v: number) => void;
+    onD3Change?: (v: number) => void;
+  };
   onSourceChange:  (id: PlasmaSourceId) => void;
   onWlChange:      (id: string) => void;
   selectedComp:    string | null;
@@ -592,6 +791,102 @@ function ControlPanel({
               {r}
             </button>
           ))}
+        </div>
+
+        {/* Distance inputs */}
+        <div className="flex items-center gap-4
+          flex-wrap">
+          <span className="text-[10px] font-mono
+            text-gray-500 uppercase tracking-wider">
+            Distances:
+          </span>
+
+          {/* d1 */}
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: '#ff6b35' }}
+            />
+            <label className="text-[9px] font-mono
+              text-gray-400">
+              Source→Lens
+            </label>
+            <input
+              type="number"
+              value={sel.d1 ?? 150}
+              onChange={e => 
+                sel.onD1Change?.(
+                  parseInt(e.target.value) || 0
+                )
+              }
+              className="w-14 bg-black/60 
+                border border-white/10 text-white 
+                rounded px-1.5 py-0.5 text-[10px] 
+                font-mono text-center outline-none 
+                focus:border-[#ff6b35]"
+            />
+            <span className="text-[9px] text-gray-600
+              font-mono">
+              mm
+            </span>
+          </div>
+
+          {/* d2 */}
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: '#00f0ff' }}
+            />
+            <label className="text-[9px] font-mono
+              text-gray-400">
+              Lens→Fiber
+            </label>
+            <input
+              type="number"
+              value={sel.d2 ?? 75}
+              onChange={e => 
+                sel.onD2Change?.(
+                  parseInt(e.target.value) || 0
+                )
+              }
+              className="w-14 bg-black/60 
+                border border-white/10 text-white 
+                rounded px-1.5 py-0.5 text-[10px] 
+                font-mono text-center outline-none 
+                focus:border-[#00f0ff]"
+            />
+            <span className="text-[9px] text-gray-600
+              font-mono">
+              mm
+            </span>
+          </div>
+
+          {/* d3 */}
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: '#ffcc44' }}
+            />
+            <label className="text-[9px] font-mono
+              text-gray-400">
+              Fiber
+            </label>
+            <input
+              type="number"
+              value={sel.d3 ?? 1000}
+              onChange={e => 
+                sel.onD3Change?.(
+                  parseInt(e.target.value) || 0
+                )
+              }
+              className="w-14 bg-black/60 
+                border border-white/10 text-white 
+                rounded px-1.5 py-0.5 text-[10px] 
+                font-mono text-center outline-none 
+                focus:border-[#ffcc44]"
+            />
+            <span className="text-[9px] text-gray-600
+              font-mono">
+              mm
+            </span>
+          </div>
         </div>
 
         {/* Selected component info */}
@@ -692,6 +987,11 @@ export default function SetupVisualizer3D({
 
   const [selectedComp, setSelectedComp] =
     useState<string | null>(null);
+
+  // ── Distance inputs (real-world values in mm) ──
+  const [d1_working, setD1Working] = useState(150);
+  const [d2_focal, setD2Focal]     = useState(75);
+  const [d3_fiber, setD3Fiber]     = useState(1000);
 
   // Derive spectrometer from selection
   const isUV = localSel.wlRange === 'uv' ||
@@ -797,6 +1097,9 @@ export default function SetupVisualizer3D({
               isUV={isUV}
               selectedComp={selectedComp}
               onSelect={setSelectedComp}
+              d1_mm={d1_working}
+              d2_mm={d2_focal}
+              d3_mm={d3_fiber}
             />
           </Canvas>
         </Suspense>
@@ -807,7 +1110,15 @@ export default function SetupVisualizer3D({
       <div className="rounded-b-xl overflow-hidden
         border border-t-0 border-white/10">
         <ControlPanel
-          sel={localSel}
+          sel={{
+            ...localSel,
+            d1: d1_working,
+            d2: d2_focal,
+            d3: d3_fiber,
+            onD1Change: setD1Working,
+            onD2Change: setD2Focal,
+            onD3Change: setD3Fiber
+          }}
           onSourceChange={handleSourceChange}
           onWlChange={handleWlChange}
           selectedComp={selectedComp}
