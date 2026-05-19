@@ -21,7 +21,8 @@ import {
   Flame,
   Waves,
   FileText,
-  FolderOpen
+  FolderOpen,
+  Telescope
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -58,6 +59,7 @@ import H2TemperatureCalculator from './components/H2TemperatureCalculator'; // M
 import MolecularFitting from './components/MolecularFitting'; // MERGE-INTEGRATION
 import ReportGenerator from './components/ReportGenerator';
 import { ProjectProvider, useProject } from './context/ProjectContext';
+import PlasmaAdvisor from './components/PlasmaAdvisor';
 
 export default function App() {
   return (
@@ -239,6 +241,8 @@ function AppContent() {
       case 'stark': return <StarkCalculator />; // RESTORED
       case 'h2temp': return <H2TemperatureCalculator />; // MERGE-INTEGRATION
       case 'molfit': return <MolecularFitting />; // MERGE-INTEGRATION
+      case 'advisor': 
+        return <PlasmaAdvisor onNavigate={setCurrentView} />;
       case 'report': return <ReportGenerator />;
       case 'simulator': return <SpectrumSimulator />;
       default: return (
@@ -328,6 +332,13 @@ function AppContent() {
             label="Molecular Bands" 
             active={currentView === 'molecules'} 
             onClick={() => setCurrentView('molecules')}
+            expanded={sidebarOpen}
+          />
+          <SidebarItem 
+            icon={<Telescope className="w-5 h-5" />} 
+            label="🔭 Plasma Advisor" 
+            active={currentView === 'advisor'}
+            onClick={() => setCurrentView('advisor')}
             expanded={sidebarOpen}
           />
           <SidebarItem 
